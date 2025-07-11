@@ -6,6 +6,8 @@ Implementation of the Large Behavioral Model architecture for [dexterous manipul
 
 [Project Page](https://toyotaresearchinstitute.github.io/lbm1/)
 
+[Data Normalization Takeaway](https://github.com/tuul-ai/robotbuilder/blob/main/timestep_norm.md)
+
 ## Citations
 
 ```bibtex
