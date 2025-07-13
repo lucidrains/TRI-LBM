@@ -26,8 +26,10 @@ classifiers=[
 ]
 
 dependencies = [
+    "denoising-diffusion-pytorch>=2.1.1",
     "einx>=0.3.0",
-    "einops>=0.8.0"
+    "einops>=0.8.0",
+    "x-transformers>=2.4.9",
 ]
 
 [project.urls]
