@@ -7,7 +7,7 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">= 3.9"
-license = { file = "LICENSE" }
+license = "MIT"
 keywords = [
     'artificial intelligence',
     'deep learning',
@@ -21,7 +21,6 @@ classifiers=[
     'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',
     'Topic :: Scientific/Engineering :: Artificial Intelligence',
-    'License :: OSI Approved :: MIT License',
     'Programming Language :: Python :: 3.9',
 ]
 
@@ -46,17 +45,3 @@ test = [
 pythonpath = [
   "."
 ]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.rye]
-managed = true
-dev-dependencies = []
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.hatch.build.targets.wheel]
-packages = ["TRI_LBM"]
