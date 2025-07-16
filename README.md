@@ -21,3 +21,12 @@ Implementation of the Large Behavioral Model architecture for [dexterous manipul
     url = {https://arxiv.org/abs/2507.05331}, 
 }
 ```
+
+```bibtex
+@inproceedings{Wagenmaker2025SteeringYD,
+    title   = {Steering Your Diffusion Policy with Latent Space Reinforcement Learning},
+    author  = {Andrew Wagenmaker and Mitsuhiko Nakamoto and Yunchu Zhang and Seohong Park and Waleed Yagoub and Anusha Nagabandi and Abhishek Gupta and Sergey Levine},
+    year    = {2025},
+    url     = {https://api.semanticscholar.org/CorpusID:279464702}
+}
+```
