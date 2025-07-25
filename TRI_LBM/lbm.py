@@ -227,18 +227,22 @@ class LBM(Module):
         text: list[str] | Tensor,
         images: Tensor,
         pose: Tensor,
+        return_noise = False
     ):
         batch_size = images.shape[0]
 
         text, images = self.get_clip_text_image_feats(text, images)
         
-        sampled_actions =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, model_forward_kwargs = dict(text = text, images = images, pose = pose))
+        sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = dict(text = text, images = images, pose = pose))
 
         if self.normalize_actions:
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             sampled = sampled * std + mean
 
-        return sampled_actions
+        if not return_noise:
+            return sampled_actions
+
+        return sampled_actions, noise
 
     def forward(
         self,

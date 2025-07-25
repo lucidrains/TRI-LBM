@@ -1,6 +1,9 @@
 import pytest
 
-def test_lbm():
+@pytest.mark.parametrize('diffusion_steer', (False, True))
+def test_lbm(
+    diffusion_steer
+):
     import torch
     from TRI_LBM.lbm import LBM
 
@@ -21,10 +24,16 @@ def test_lbm():
         pose = pose
     )
 
-    sampled_actions = lbm.sample(
+    sampled_out = lbm.sample(
         text = commands,
         images = images,
-        pose = pose
+        pose = pose,
+        return_noise = diffusion_steer
     )
 
-    assert sampled_actions.shape == (1, 16, 20)
+    if not diffusion_steer:
+        sampled_actions = sampled_out
+        assert sampled_actions.shape == (1, 16, 20)
+    else:
+        sampled_actions, noise = sampled_out
+        assert sampled_actions.shape == noise.shape
