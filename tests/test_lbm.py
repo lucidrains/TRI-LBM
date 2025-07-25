@@ -10,7 +10,7 @@ def test_lbm():
     )
 
     commands = ['pick up the apple']
-    images = torch.randn(1, 3, 224, 224)
+    images = torch.randn(1, 3, 3, 224, 224)
     actions = torch.randn(1, 16, 20)
     pose = torch.randn(1, 4)
 

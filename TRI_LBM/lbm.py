@@ -4,9 +4,14 @@ import torch
 from torch import nn, Tensor, tensor, is_tensor, cat, stack
 from torch.nn import Module, ModuleList
 
-# ein
+# ein notation
+# b - batch
+# t - time
+# c - channels
+# h - height
+# w - width
 
-from einops import rearrange
+from einops import rearrange, pack, unpack
 
 # dogfooding
 
@@ -28,8 +33,20 @@ from einops.layers.torch import Rearrange
 def exists(v):
     return v is not None
 
+def default(v, d):
+    return v if exists(v) else d
+
 def divisible_by(num, den):
     return (num % den) == 0
+
+def pack_and_inverse(t, pattern):
+    packed, shape = pack([t], pattern)
+
+    def inverse(out, inv_pattern = None):
+        inv_pattern = default(inv_pattern, pattern)
+        return unpack(out, shape, inv_pattern)[0]
+
+    return packed, inverse
 
 # random sinusoidal for times - used by deepmind a lot
 
@@ -84,6 +101,7 @@ class DiffusionTransformerWrapper(Module):
 
         tokens = self.proj_in(actions)
 
+        images = rearrange(images, 'b t d -> b (t d)')
         condition = cat((time_cond, text, images, pose), dim = -1)
 
         attended = self.transformer(tokens, condition = condition)
@@ -112,6 +130,7 @@ class LBM(Module):
         language_pretrained_name = 'laion2b_s34b_b79k',
         clip_image_model = 'ViT-B-16',
         image_pretrained_name = 'openai',
+        num_image_frames = 3
     ):
         super().__init__()
         # Clip, they use
@@ -141,7 +160,14 @@ class LBM(Module):
         dim_image_feats = image_model.encode_image(torch.randn(1, 3, 224, 224)).shape[-1]
         dim_time = dim * 2
 
-        dim_observation = dim_time + dim_text_feats + dim_image_feats + dim_pose
+        dim_observation = (
+            dim_time +
+            dim_text_feats +
+            dim_image_feats * num_image_frames +
+            dim_pose
+        )
+
+        self.images_shape = (3, num_image_frames, 224, 224) # just enforce this shape to begin with
 
         self.diffusion_transformer = DiffusionTransformerWrapper(
             dim_input = action_dim,
@@ -183,20 +209,24 @@ class LBM(Module):
         if not is_tensor(text):
             text = self.language_tokenizer(text)
 
+        images = rearrange(images, 'b c t h w -> b t c h w')
+
+        images, inverse_pack_time = pack_and_inverse(images, '* c h w')
+
         with torch.no_grad():
             self.language_model.eval()
             self.image_model.eval()
+
             text = self.language_model.encode_text(text)
             images = self.image_model.encode_image(images)
 
-        return text, images
+        return text, inverse_pack_time(images, '* d')
 
     def sample(
         self,
         text: list[str] | Tensor,
         images: Tensor,
         pose: Tensor,
-        batch_size = None,
     ):
         batch_size = images.shape[0]
 
@@ -217,7 +247,7 @@ class LBM(Module):
         pose: Tensor,
         actions: Tensor | None = None,
     ):
-        batch = images.shape[0]
+        assert images.shape[1:] == self.images_shape
 
         if not exists(actions):
             return self.sample(text = text, images = images)
@@ -232,4 +262,3 @@ class LBM(Module):
 
         loss = self.gaussian_diffusion_1d(actions, model_forward_kwargs = dict(text = text, images = images, pose = pose))
         return loss
-
