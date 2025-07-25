@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 from torch import nn, Tensor, tensor, is_tensor
 from torch.nn import Module, ModuleList
@@ -15,8 +17,6 @@ from x_transformers import (
 
 from denoising_diffusion_pytorch import GaussianDiffusion
 
-
-
 # functions
 
 def exists(v):
@@ -27,6 +27,12 @@ def exists(v):
 class LBM(Module):
     def __init__(
         self,
+        dim = 768,
+        depth = 8, # Table 2. - not very deep at all
+        dim_head = 64,
+        heads = 12,
+        transformer_kwargs: dict = dict(),
+        diffusion_kwargs: dict = dict(),
         clip_language_model = 'ViT-B-32',
         language_pretrained_name = 'laion2b_s34b_b79k',
         clip_image_model = 'ViT-B-16',
@@ -36,7 +42,7 @@ class LBM(Module):
         # Clip, they use
 
         # ViT-B-16 for images
-        # ViT-B-32 for langauge
+        # ViT-B-32 for language
 
         # reading in between the lines, they struggled with language steering
         # we will try to improve on that with the finding from Bytedance's GR-3 with the prediction of positive / negative task status (contrastive learning between command / action)
@@ -50,9 +56,21 @@ class LBM(Module):
         self.language_model = language_model
         self.image_model = image_model
 
+        self.diffusion_transformer = Encoder(
+            dim = dim,
+            depth = depth,
+            heads = heads,
+            dim_head = dim_head,
+            use_adaptive_layernorm = True,
+            use_adaptive_layerscale = True
+        )
+
+    def sample(self):
+        raise NotImplementedError
+
     def forward(
         self,
-        text: list[str],
+        text: list[str] | Tensor,
         images: Tensor
     ):
         raise NotImplementedError
