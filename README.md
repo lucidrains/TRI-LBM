@@ -8,6 +8,39 @@ Implementation of the Large Behavioral Model architecture for [dexterous manipul
 
 [Data Normalization Takeaway](https://github.com/tuul-ai/robotbuilder/blob/main/timestep_norm.md)
 
+
+## Install
+
+```shell
+$ pip install TRI-LBM
+```
+
+## Usage
+
+```python
+import torch
+from TRI_LBM.lbm import LBM
+
+lbm = LBM(
+  action_dim = 20
+)
+
+commands = ['pick up the apple']
+images = torch.randn(1, 3, 256, 256)
+actions = torch.randn(1, 16, 20)
+
+loss = lbm(
+    text = commands,
+    images = images,
+    actions = actions
+)
+
+sampled_actions = lbm.sample(
+    text = commands,
+    images = images
+) # (1, 16, 20)
+```
+
 ## Citations
 
 ```bibtex

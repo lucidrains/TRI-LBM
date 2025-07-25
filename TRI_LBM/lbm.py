@@ -19,10 +19,74 @@ from denoising_diffusion_pytorch import (
     GaussianDiffusion1D
 )
 
+import open_clip
+
+from einops.layers.torch import Rearrange
+
 # functions
 
 def exists(v):
     return v is not None
+
+def divisible_by(num, den):
+    return (num % den) == 0
+
+# random sinusoidal for times - used by deepmind a lot
+
+class RandomSinusoidalPosEmb(Module):
+    def __init__(self, dim):
+        super().__init__()
+        assert divisible_by(dim, 2)
+        half_dim = dim // 2
+        self.weights = nn.Parameter(torch.randn(half_dim), requires_grad = False)
+
+    def forward(self, x):
+        freqs = x * rearrange(self.weights, 'd -> 1 d') * 2 * torch.pi
+        fouriered = torch.cat((freqs.sin(), freqs.cos()), dim = -1)
+        return fouriered
+
+# DiT wrapper
+
+class DiffusionTransformerWrapper(Module):
+    def __init__(
+        self,
+        dim_input,
+        dim_time,
+        transformer: Encoder
+    ):
+        super().__init__()
+
+        self.transformer = transformer
+
+        dim = transformer.dim
+
+        self.proj_in = nn.Linear(dim_input, dim)
+
+        self.to_time_cond = nn.Sequential(
+            RandomSinusoidalPosEmb(dim),
+            nn.Linear(dim, dim_time),
+            nn.SiLU(),
+        )
+
+        self.proj_out = nn.Linear(dim, dim_input)
+
+    def forward(
+        self,
+        actions,
+        times,
+        text = None,
+        images = None
+    ):
+        batch_size = actions.shape[0]
+
+        condition = self.to_time_cond(times)
+
+        tokens = self.proj_in(actions)
+
+        attended = self.transformer(tokens, context = torch.randn(batch_size, 2, 768), condition = condition)
+
+        pred = self.proj_out(attended)
+        return pred
 
 # classes
 
@@ -37,6 +101,7 @@ class LBM(Module):
         action_chunk_length = 16,
         action_mean_std_for_norm: Tensor | None = None, # Float['d 2'] - last dimension must be shift and inv scale
         diffusion_timesteps = 1000,
+        diffusion_sampling_timesteps = 16,
         transformer_kwargs: dict = dict(),
         diffusion_kwargs: dict = dict(),
         clip_language_model = 'ViT-B-32',
@@ -62,25 +127,36 @@ class LBM(Module):
         self.language_model = language_model
         self.image_model = image_model
 
-        self.diffusion_transformer = Encoder(
-            dim = dim,
-            depth = depth,
-            heads = heads,
-            dim_head = dim_head,
-            cross_attend = True,
-            use_adaptive_layernorm = True,
-            use_adaptive_layerscale = True
+        self.diffusion_transformer = DiffusionTransformerWrapper(
+            dim_input = action_dim,
+            dim_time = dim * 2,
+            transformer = Encoder(
+                dim = dim,
+                depth = depth,
+                heads = heads,
+                attn_dim_head = dim_head,
+                dim_condition = dim * 2,
+                cross_attend = True,
+                use_adaptive_layernorm = True,
+                use_adaptive_layerscale = True
+            )
         )
 
         self.gaussian_diffusion_1d = GaussianDiffusion1D(
             self.diffusion_transformer,
             seq_length = action_chunk_length,
-            timesteps = diffusion_timesteps
+            timesteps = diffusion_timesteps,
+            sampling_timesteps = diffusion_sampling_timesteps,
+            channels = action_dim,
+            self_condition = False,
+            channel_first = False
         )
 
         # one contribution of the paper is that Russ claims huge improvements (40x) by simply normalizing actions correctly
 
-        if exists(action_mean_std_for_norm):
+        self.normalize_actions = exists(action_mean_std_for_norm)
+
+        if self.normalize_actions:
             assert action_mean_std_for_norm.shape == (action_dim, 2)
             self.register_buffer('action_mean_std_for_norm', action_mean_std_for_norm)
 
@@ -88,9 +164,17 @@ class LBM(Module):
         self,
         text: list[str] | Tensor,
         images: Tensor,
-        sample_timesteps = 16 # ddim
+        batch_size = None,
     ):
-        raise NotImplementedError
+        batch_size = images.shape[0]
+
+        sampled_actions =  self.gaussian_diffusion_1d.sample(batch_size = batch_size)
+
+        if self.normalize_actions:
+            mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
+            sampled = sampled * std + mean
+
+        return sampled_actions
 
     def forward(
         self,
@@ -98,13 +182,17 @@ class LBM(Module):
         images: Tensor,
         actions: Tensor | None = None,
     ):
+        batch = images.shape[0]
+
         if not exists(actions):
             return self.sample(text = text, images = images)
 
         # take care of normalizing actions, if statistics were set on init
 
-        if exists(self.action_mean_std_for_norm):
+        if self.normalize_actions:
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             actions = (actions - mean) / std
 
-        raise NotImplementedError
+        loss = self.gaussian_diffusion_1d(actions, model_forward_kwargs = dict(text = text, images = images))
+        return loss
+
