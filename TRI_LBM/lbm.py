@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from torch import nn, Tensor, tensor, is_tensor
+from torch import nn, Tensor, tensor, is_tensor, cat, stack
 from torch.nn import Module, ModuleList
 
 # ein
@@ -74,16 +74,19 @@ class DiffusionTransformerWrapper(Module):
         self,
         actions,
         times,
-        text = None,
-        images = None
+        text,
+        images,
+        pose
     ):
         batch_size = actions.shape[0]
 
-        condition = self.to_time_cond(times)
+        time_cond = self.to_time_cond(times)
 
         tokens = self.proj_in(actions)
 
-        attended = self.transformer(tokens, context = torch.randn(batch_size, 2, 768), condition = condition)
+        condition = cat((time_cond, text, images, pose), dim = -1)
+
+        attended = self.transformer(tokens, condition = condition)
 
         pred = self.proj_out(attended)
         return pred
@@ -94,6 +97,7 @@ class LBM(Module):
     def __init__(
         self,
         action_dim,
+        dim_pose,
         dim = 768,
         depth = 8, # Table 2. - not very deep at all
         dim_head = 64,
@@ -125,18 +129,29 @@ class LBM(Module):
         image_model, _, image_preprocess = open_clip.create_model_and_transforms(clip_image_model, pretrained = image_pretrained_name)
 
         self.language_model = language_model
+        self.language_tokenizer = tokenizer
+
+        self.image_preprocess = preprocess
         self.image_model = image_model
+
+        # cheap way to get feat dimensions
+        # assume one image for starters
+
+        dim_text_feats = language_model.encode_text(tokenizer(['test'])).shape[-1]
+        dim_image_feats = image_model.encode_image(torch.randn(1, 3, 224, 224)).shape[-1]
+        dim_time = dim * 2
+
+        dim_observation = dim_time + dim_text_feats + dim_image_feats + dim_pose
 
         self.diffusion_transformer = DiffusionTransformerWrapper(
             dim_input = action_dim,
-            dim_time = dim * 2,
+            dim_time = dim_time,
             transformer = Encoder(
                 dim = dim,
                 depth = depth,
                 heads = heads,
                 attn_dim_head = dim_head,
-                dim_condition = dim * 2,
-                cross_attend = True,
+                dim_condition = dim_observation,
                 use_adaptive_layernorm = True,
                 use_adaptive_layerscale = True
             )
@@ -160,15 +175,34 @@ class LBM(Module):
             assert action_mean_std_for_norm.shape == (action_dim, 2)
             self.register_buffer('action_mean_std_for_norm', action_mean_std_for_norm)
 
+    def get_clip_text_image_feats(
+        self,
+        text: list[str] | Tensor,
+        images: Tensor
+    ):
+        if not is_tensor(text):
+            text = self.language_tokenizer(text)
+
+        with torch.no_grad():
+            self.language_model.eval()
+            self.image_model.eval()
+            text = self.language_model.encode_text(text)
+            images = self.image_model.encode_image(images)
+
+        return text, images
+
     def sample(
         self,
         text: list[str] | Tensor,
         images: Tensor,
+        pose: Tensor,
         batch_size = None,
     ):
         batch_size = images.shape[0]
 
-        sampled_actions =  self.gaussian_diffusion_1d.sample(batch_size = batch_size)
+        text, images = self.get_clip_text_image_feats(text, images)
+        
+        sampled_actions =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, model_forward_kwargs = dict(text = text, images = images, pose = pose))
 
         if self.normalize_actions:
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
@@ -180,6 +214,7 @@ class LBM(Module):
         self,
         text: list[str] | Tensor,
         images: Tensor,
+        pose: Tensor,
         actions: Tensor | None = None,
     ):
         batch = images.shape[0]
@@ -193,6 +228,8 @@ class LBM(Module):
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             actions = (actions - mean) / std
 
-        loss = self.gaussian_diffusion_1d(actions, model_forward_kwargs = dict(text = text, images = images))
+        text, images = self.get_clip_text_image_feats(text, images)
+
+        loss = self.gaussian_diffusion_1d(actions, model_forward_kwargs = dict(text = text, images = images, pose = pose))
         return loss
 

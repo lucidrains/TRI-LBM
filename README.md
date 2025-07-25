@@ -22,22 +22,26 @@ import torch
 from TRI_LBM.lbm import LBM
 
 lbm = LBM(
-  action_dim = 20
+    action_dim = 20,
+    dim_pose = 10
 )
 
-commands = ['pick up the apple']
-images = torch.randn(1, 3, 256, 256)
+commands = ['pick up the apple and place in the blue tray']
+images = torch.randn(1, 3, 224, 224)
 actions = torch.randn(1, 16, 20)
+pose = torch.randn(1, 10)
 
 loss = lbm(
     text = commands,
     images = images,
-    actions = actions
+    pose = pose,
+    actions = actions,
 )
 
 sampled_actions = lbm.sample(
     text = commands,
-    images = images
+    images = images,
+    pose = pose,
 ) # (1, 16, 20)
 ```
 
