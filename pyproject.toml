@@ -28,6 +28,7 @@ dependencies = [
     "denoising-diffusion-pytorch>=2.1.1",
     "einx>=0.3.0",
     "einops>=0.8.0",
+    "open_clip_torch",
     "x-transformers>=2.4.9",
 ]
 
