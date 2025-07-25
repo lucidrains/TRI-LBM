@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 from torch import nn, Tensor, tensor, is_tensor, cat, stack
 from torch.nn import Module, ModuleList
 
@@ -12,6 +13,7 @@ from torch.nn import Module, ModuleList
 # w - width
 
 from einops import rearrange, pack, unpack
+from einops.layers.torch import Rearrange
 
 # dogfooding
 
@@ -24,9 +26,9 @@ from denoising_diffusion_pytorch import (
     GaussianDiffusion1D
 )
 
-import open_clip
+# open clip
 
-from einops.layers.torch import Rearrange
+import open_clip
 
 # functions
 
@@ -35,6 +37,9 @@ def exists(v):
 
 def default(v, d):
     return v if exists(v) else d
+
+def l2norm(t):
+    return F.normalize(t, dim = -1)
 
 def divisible_by(num, den):
     return (num % den) == 0
@@ -130,6 +135,7 @@ class LBM(Module):
         language_pretrained_name = 'laion2b_s34b_b79k',
         clip_image_model = 'ViT-B-16',
         image_pretrained_name = 'openai',
+        norm_clip_embeds = True,
         num_image_frames = 3
     ):
         super().__init__()
@@ -152,6 +158,8 @@ class LBM(Module):
 
         self.image_preprocess = preprocess
         self.image_model = image_model
+
+        self.norm_clip_embeds = norm_clip_embeds
 
         # cheap way to get feat dimensions
         # assume one image for starters
@@ -219,6 +227,9 @@ class LBM(Module):
 
             text = self.language_model.encode_text(text)
             images = self.image_model.encode_image(images)
+
+        if self.norm_clip_embeds:
+            text, images = map(l2norm, (text, images))
 
         return text, inverse_pack_time(images, '* d')
 
