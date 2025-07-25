@@ -15,7 +15,9 @@ from x_transformers import (
     TransformerWrapper
 )
 
-from denoising_diffusion_pytorch import GaussianDiffusion
+from denoising_diffusion_pytorch import (
+    GaussianDiffusion1D
+)
 
 # functions
 
@@ -31,6 +33,8 @@ class LBM(Module):
         depth = 8, # Table 2. - not very deep at all
         dim_head = 64,
         heads = 12,
+        action_chunk_length = 16,
+        diffusion_timesteps = 1000,
         transformer_kwargs: dict = dict(),
         diffusion_kwargs: dict = dict(),
         clip_language_model = 'ViT-B-32',
@@ -65,7 +69,16 @@ class LBM(Module):
             use_adaptive_layerscale = True
         )
 
-    def sample(self):
+        self.gaussian_diffusion_1d = GaussianDiffusion1D(
+            self.diffusion_transformer,
+            seq_length = action_chunk_length,
+            timesteps = diffusion_timesteps
+        )
+
+    def sample(
+        self,
+        sample_timesteps = 16 # ddim
+    ):
         raise NotImplementedError
 
     def forward(
