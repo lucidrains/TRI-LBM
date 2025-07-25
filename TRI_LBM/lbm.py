@@ -29,11 +29,13 @@ def exists(v):
 class LBM(Module):
     def __init__(
         self,
+        action_dim,
         dim = 768,
         depth = 8, # Table 2. - not very deep at all
         dim_head = 64,
         heads = 12,
         action_chunk_length = 16,
+        action_mean_std_for_norm: Tensor | None = None, # Float['d 2'] - last dimension must be shift and inv scale
         diffusion_timesteps = 1000,
         transformer_kwargs: dict = dict(),
         diffusion_kwargs: dict = dict(),
@@ -65,6 +67,7 @@ class LBM(Module):
             depth = depth,
             heads = heads,
             dim_head = dim_head,
+            cross_attend = True,
             use_adaptive_layernorm = True,
             use_adaptive_layerscale = True
         )
@@ -75,8 +78,16 @@ class LBM(Module):
             timesteps = diffusion_timesteps
         )
 
+        # one contribution of the paper is that Russ claims huge improvements (40x) by simply normalizing actions correctly
+
+        if exists(action_mean_std_for_norm):
+            assert action_mean_std_for_norm.shape == (action_dim, 2)
+            self.register_buffer('action_mean_std_for_norm', action_mean_std_for_norm)
+
     def sample(
         self,
+        text: list[str] | Tensor,
+        images: Tensor,
         sample_timesteps = 16 # ddim
     ):
         raise NotImplementedError
@@ -84,6 +95,16 @@ class LBM(Module):
     def forward(
         self,
         text: list[str] | Tensor,
-        images: Tensor
+        images: Tensor,
+        actions: Tensor | None = None,
     ):
+        if not exists(actions):
+            return self.sample(text = text, images = images)
+
+        # take care of normalizing actions, if statistics were set on init
+
+        if exists(self.action_mean_std_for_norm):
+            mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
+            actions = (actions - mean) / std
+
         raise NotImplementedError
