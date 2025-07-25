@@ -38,6 +38,10 @@ loss = lbm(
     actions = actions,
 )
 
+loss.backward()
+
+# after much training
+
 sampled_actions = lbm.sample(
     text = commands,
     images = images,
