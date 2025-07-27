@@ -215,7 +215,7 @@ class LBM(Module):
             self.language_model.eval()
             text = self.language_model.encode_text(text)
 
-        images = self.accept_video_wrapper(images)
+        images = self.accept_video_wrapper(images, eval_with_no_grad = True)
 
         if self.norm_clip_embeds:
             text, images = map(l2norm, (text, images))
