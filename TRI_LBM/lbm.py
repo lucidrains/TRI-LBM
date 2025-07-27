@@ -12,7 +12,7 @@ from torch.nn import Module, ModuleList
 # h - height
 # w - width
 
-from einops import rearrange, pack, unpack
+from einops import rearrange
 from einops.layers.torch import Rearrange
 
 # dogfooding
@@ -30,6 +30,8 @@ from denoising_diffusion_pytorch import (
 
 import open_clip
 
+from vit_pytorch.accept_video_wrapper import AcceptVideoWrapper
+
 # functions
 
 def exists(v):
@@ -43,15 +45,6 @@ def l2norm(t):
 
 def divisible_by(num, den):
     return (num % den) == 0
-
-def pack_and_inverse(t, pattern):
-    packed, shape = pack([t], pattern)
-
-    def inverse(out, inv_pattern = None):
-        inv_pattern = default(inv_pattern, pattern)
-        return unpack(out, shape, inv_pattern)[0]
-
-    return packed, inverse
 
 # random sinusoidal for times - used by deepmind a lot
 
@@ -158,6 +151,7 @@ class LBM(Module):
 
         self.image_preprocess = preprocess
         self.image_model = image_model
+        self.accept_video_wrapper = AcceptVideoWrapper(image_model, forward_function = 'encode_image')
 
         self.norm_clip_embeds = norm_clip_embeds
 
@@ -212,26 +206,21 @@ class LBM(Module):
     def get_clip_text_image_feats(
         self,
         text: list[str] | Tensor,
-        images: Tensor
+        images: Tensor # (b c t h w)
     ):
         if not is_tensor(text):
             text = self.language_tokenizer(text)
 
-        images = rearrange(images, 'b c t h w -> b t c h w')
-
-        images, inverse_pack_time = pack_and_inverse(images, '* c h w')
-
         with torch.no_grad():
             self.language_model.eval()
-            self.image_model.eval()
-
             text = self.language_model.encode_text(text)
-            images = self.image_model.encode_image(images)
+
+        images = self.accept_video_wrapper(images)
 
         if self.norm_clip_embeds:
             text, images = map(l2norm, (text, images))
 
-        return text, inverse_pack_time(images, '* d')
+        return text, images
 
     def sample(
         self,

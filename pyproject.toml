@@ -30,6 +30,7 @@ dependencies = [
     "einops>=0.8.0",
     "open_clip_torch",
     "x-transformers>=2.4.9",
+    "vit-pytorch>=1.11.2"
 ]
 
 [project.urls]
