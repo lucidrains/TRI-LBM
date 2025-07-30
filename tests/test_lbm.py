@@ -2,9 +2,11 @@ import pytest
 param = pytest.mark.parametrize
 
 @param('tactile', (False, True))
+@param('test_task_status', (False, True))
 @param('diffusion_steer', (False, True))
 def test_lbm(
     tactile,
+    test_task_status,
     diffusion_steer
 ):
     import torch
@@ -13,7 +15,8 @@ def test_lbm(
     lbm = LBM(
         action_dim = 20,
         dim_pose = 4,
-        dim_tactile_input = 37 if tactile else None
+        dim_tactile_input = 37 if tactile else None,
+        add_task_status_prediction = test_task_status,
     )
 
     commands = ['pick up the apple']
@@ -23,12 +26,15 @@ def test_lbm(
 
     touch = torch.randn(1, 2, 37) if tactile else None
 
+    task_status = torch.randint(-1, 2, (1,)) if test_task_status else None
+
     loss = lbm(
         text = commands,
         images = images,
         actions = actions,
         pose = pose,
-        touch = touch
+        touch = touch,
+        task_status = task_status
     )
 
     sampled_out = lbm.sample(

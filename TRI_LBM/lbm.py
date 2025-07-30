@@ -12,7 +12,8 @@ from torch.nn import Module, ModuleList
 # h - height
 # w - width
 
-from einops import rearrange
+import einx
+from einops import rearrange, repeat, pack
 from einops.layers.torch import Rearrange
 
 # dogfooding
@@ -133,7 +134,8 @@ class LBM(Module):
         norm_clip_embeds = True,
         num_image_frames = 3,
         dim_tactile_input = None,
-        tactile_image_fusion_depth = 2
+        tactile_image_fusion_depth = 2,
+        add_task_status_prediction = True,  # Bytedance reports doing a crude contrastive learning on action / language pairs during training significantly improves instruction following - https://arxiv.org/abs/2507.15493
     ):
         super().__init__()
         # Clip, they use
@@ -159,6 +161,11 @@ class LBM(Module):
 
         self.norm_clip_embeds = norm_clip_embeds
 
+        # whether to do task status prediction
+
+        self.add_task_status_prediction = add_task_status_prediction
+        maybe_task_status_dim = bool(self.add_task_status_prediction)
+
         # cheap way to get feat dimensions
         # assume one image for starters
 
@@ -176,7 +183,7 @@ class LBM(Module):
         self.images_shape = (3, num_image_frames, 224, 224) # just enforce this shape to begin with
 
         self.diffusion_transformer = DiffusionTransformerWrapper(
-            dim_input = action_dim,
+            dim_input = action_dim + maybe_task_status_dim,
             dim_time = dim_time,
             transformer = Encoder(
                 dim = dim,
@@ -194,7 +201,7 @@ class LBM(Module):
             seq_length = action_chunk_length,
             timesteps = diffusion_timesteps,
             sampling_timesteps = diffusion_sampling_timesteps,
-            channels = action_dim,
+            channels = action_dim + maybe_task_status_dim,
             self_condition = False,
             channel_first = False
         )
@@ -252,13 +259,20 @@ class LBM(Module):
         images: Tensor,
         pose: Tensor,
         touch: Tensor | None = None,
-        return_noise = False
+        return_noise = False,
+        remove_task_status = True
     ):
         batch_size = images.shape[0]
 
         text, images = self.get_clip_text_image_feats(text, images, touch = touch)
-        
+
         sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = dict(text = text, images = images, pose = pose))
+
+        if self.add_task_status_prediction and remove_task_status:
+            # remove task status during inference
+            # todo - should consider also fixing it at 0 and infill
+
+            sampled_actions = sampled_actions[..., :-1]
 
         if self.normalize_actions:
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
@@ -276,7 +290,9 @@ class LBM(Module):
         pose: Tensor,
         touch: Tensor | None = None,
         actions: Tensor | None = None,
+        task_status: Tensor | None = None # must be Int['b'] of {-1, 0, 1} - `-1` for invalid action / language pair
     ):
+        batch, device = images.shape[0], images.device
         assert images.shape[1:] == self.images_shape
 
         if not exists(actions):
@@ -290,5 +306,37 @@ class LBM(Module):
 
         text, images = self.get_clip_text_image_feats(text, images, touch = touch)
 
-        loss = self.gaussian_diffusion_1d(actions, model_forward_kwargs = dict(text = text, images = images, pose = pose))
+        # maybe add task status
+
+        if self.add_task_status_prediction:
+            is_invalid_task = task_status == -1
+
+            if not exists(task_status):
+                task_status = torch.zeros((batch,), device = device)
+
+            task_status = repeat(task_status.float(), 'b -> b n 1', n = actions.shape[1])
+
+            actions = cat((actions, task_status), dim = -1)
+
+        # gaussian diffusion 1d loss
+
+        loss = self.gaussian_diffusion_1d(
+            actions,
+            model_forward_kwargs = dict(text = text, images = images, pose = pose),
+            return_reduced_loss = False
+        )
+
+        # for any invalid status, they omit the diffusion loss for those action, please open an issue if this is a misunderstanding
+
+        if self.add_task_status_prediction:
+            loss, task_status_loss = loss[..., :-1], loss[..., -1:]
+
+            loss = loss[~is_invalid_task]
+
+            all_losses, _ = pack((loss, task_status_loss), '*')
+
+            # reduce
+
+            loss = all_losses.mean()
+
         return loss

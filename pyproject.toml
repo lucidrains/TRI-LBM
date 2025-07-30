@@ -1,6 +1,6 @@
 [project]
 name = "TRI-LBM"
-version = "0.0.7"
+version = "0.0.8"
 description = "Large Behavioral Model from Toyota Research"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
@@ -26,7 +26,7 @@ classifiers=[
 
 dependencies = [
     "bidirectional-cross-attention>=0.1.0",
-    "denoising-diffusion-pytorch>=2.2.3",
+    "denoising-diffusion-pytorch>=2.2.4",
     "einx>=0.3.0",
     "einops>=0.8.0",
     "open_clip_torch",
@@ -46,5 +46,5 @@ test = [
 
 [tool.pytest.ini_options]
 pythonpath = [
-  "."
+    "."
 ]

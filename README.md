@@ -83,3 +83,15 @@ sampled_actions = lbm.sample(
     url     = {https://arxiv.org/abs/2506.15953}, 
 }
 ```
+
+```bibtex
+@misc{cheang2025gr3technicalreport,
+    title   = {GR-3 Technical Report}, 
+    author  = {Chilam Cheang and Sijin Chen and Zhongren Cui and Yingdong Hu and Liqun Huang and Tao Kong and Hang Li and Yifeng Li and Yuxiao Liu and Xiao Ma and Hao Niu and Wenxuan Ou and Wanli Peng and Zeyu Ren and Haixin Shi and Jiawen Tian and Hongtao Wu and Xin Xiao and Yuyang Xiao and Jiafeng Xu and Yichu Yang},
+    year    = {2025},
+    eprint  = {2507.15493},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.RO},
+    url     = {https://arxiv.org/abs/2507.15493}, 
+}
+```
