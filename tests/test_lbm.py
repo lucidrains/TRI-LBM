@@ -1,7 +1,10 @@
 import pytest
+param = pytest.mark.parametrize
 
-@pytest.mark.parametrize('diffusion_steer', (False, True))
+@param('tactile', (False, True))
+@param('diffusion_steer', (False, True))
 def test_lbm(
+    tactile,
     diffusion_steer
 ):
     import torch
@@ -9,7 +12,8 @@ def test_lbm(
 
     lbm = LBM(
         action_dim = 20,
-        dim_pose = 4
+        dim_pose = 4,
+        dim_tactile_input = 37 if tactile else None
     )
 
     commands = ['pick up the apple']
@@ -17,17 +21,21 @@ def test_lbm(
     actions = torch.randn(1, 16, 20)
     pose = torch.randn(1, 4)
 
+    touch = torch.randn(1, 2, 37) if tactile else None
+
     loss = lbm(
         text = commands,
         images = images,
         actions = actions,
-        pose = pose
+        pose = pose,
+        touch = touch
     )
 
     sampled_out = lbm.sample(
         text = commands,
         images = images,
         pose = pose,
+        touch = touch,
         return_noise = diffusion_steer
     )
 

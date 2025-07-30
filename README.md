@@ -71,3 +71,15 @@ sampled_actions = lbm.sample(
     url     = {https://api.semanticscholar.org/CorpusID:279464702}
 }
 ```
+
+```bibtex
+@misc{heng2025vitacformerlearningcrossmodalrepresentation,
+    title   = {ViTacFormer: Learning Cross-Modal Representation for Visuo-Tactile Dexterous Manipulation}, 
+    author  = {Liang Heng and Haoran Geng and Kaifeng Zhang and Pieter Abbeel and Jitendra Malik},
+    year    = {2025},
+    eprint  = {2506.15953},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.RO},
+    url     = {https://arxiv.org/abs/2506.15953}, 
+}
+```

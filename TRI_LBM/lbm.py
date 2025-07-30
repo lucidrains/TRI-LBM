@@ -32,6 +32,8 @@ import open_clip
 
 from vit_pytorch.accept_video_wrapper import AcceptVideoWrapper
 
+from bidirectional_cross_attention import BidirectionalCrossAttentionTransformer as BiCrossAttnTransformer
+
 # functions
 
 def exists(v):
@@ -129,7 +131,9 @@ class LBM(Module):
         clip_image_model = 'ViT-B-16',
         image_pretrained_name = 'openai',
         norm_clip_embeds = True,
-        num_image_frames = 3
+        num_image_frames = 3,
+        dim_tactile_input = None,
+        tactile_image_fusion_depth = 2
     ):
         super().__init__()
         # Clip, they use
@@ -195,6 +199,19 @@ class LBM(Module):
             channel_first = False
         )
 
+        # tactile
+
+        if exists(dim_tactile_input):
+            self.to_tactile_tokens = nn.Linear(dim_tactile_input, dim)
+
+            self.tactile_fusion = BiCrossAttnTransformer(
+                dim = dim_image_feats,
+                context_dim = dim,
+                heads = heads,
+                dim_head = dim_head,
+                depth = tactile_image_fusion_depth
+            )
+
         # one contribution of the paper is that Russ claims huge improvements (40x) by simply normalizing actions correctly
 
         self.normalize_actions = exists(action_mean_std_for_norm)
@@ -206,7 +223,8 @@ class LBM(Module):
     def get_clip_text_image_feats(
         self,
         text: list[str] | Tensor,
-        images: Tensor # (b c t h w)
+        images: Tensor,               # (b c t h w)
+        touch: Tensor | None = None,  # (b nt, dt)
     ):
         if not is_tensor(text):
             text = self.language_tokenizer(text)
@@ -216,6 +234,12 @@ class LBM(Module):
             text = self.language_model.encode_text(text)
 
         images = self.accept_video_wrapper(images, eval_with_no_grad = True)
+
+        if exists(touch):
+            assert exists(self.to_tactile_tokens), f'`dim_tactile_input` must be set if tactile data is passed in'
+
+            tactile_tokens = self.to_tactile_tokens(touch)
+            images, tactile_tokens = self.tactile_fusion(images, tactile_tokens)
 
         if self.norm_clip_embeds:
             text, images = map(l2norm, (text, images))
@@ -227,11 +251,12 @@ class LBM(Module):
         text: list[str] | Tensor,
         images: Tensor,
         pose: Tensor,
+        touch: Tensor | None = None,
         return_noise = False
     ):
         batch_size = images.shape[0]
 
-        text, images = self.get_clip_text_image_feats(text, images)
+        text, images = self.get_clip_text_image_feats(text, images, touch = touch)
         
         sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = dict(text = text, images = images, pose = pose))
 
@@ -249,6 +274,7 @@ class LBM(Module):
         text: list[str] | Tensor,
         images: Tensor,
         pose: Tensor,
+        touch: Tensor | None = None,
         actions: Tensor | None = None,
     ):
         assert images.shape[1:] == self.images_shape
@@ -262,7 +288,7 @@ class LBM(Module):
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             actions = (actions - mean) / std
 
-        text, images = self.get_clip_text_image_feats(text, images)
+        text, images = self.get_clip_text_image_feats(text, images, touch = touch)
 
         loss = self.gaussian_diffusion_1d(actions, model_forward_kwargs = dict(text = text, images = images, pose = pose))
         return loss
