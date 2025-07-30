@@ -273,6 +273,7 @@ class LBM(Module):
             # todo - should consider also fixing it at 0 and infill
 
             sampled_actions = sampled_actions[..., :-1]
+            noise = noise[..., :-1]
 
         if self.normalize_actions:
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
