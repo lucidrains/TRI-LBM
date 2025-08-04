@@ -94,7 +94,9 @@ class DiffusionTransformerWrapper(Module):
         times,
         text,
         images,
-        pose
+        pose,
+        *,
+        context
     ):
         batch_size = actions.shape[0]
 
@@ -105,7 +107,7 @@ class DiffusionTransformerWrapper(Module):
         images = rearrange(images, 'b t d -> b (t d)')
         condition = cat((time_cond, text, images, pose), dim = -1)
 
-        attended = self.transformer(tokens, condition = condition)
+        attended = self.transformer(tokens, condition = condition, context = context)
 
         pred = self.proj_out(attended)
         return pred
@@ -136,6 +138,8 @@ class LBM(Module):
         dim_tactile_input = None,
         tactile_image_fusion_depth = 2,
         add_task_status_prediction = True,  # Bytedance reports doing a crude contrastive learning on action / language pairs during training significantly improves instruction following - https://arxiv.org/abs/2507.15493
+        accept_additional_context = False,  # cross attend to additional context, will be used on CLIP text encoding to improve on language following
+        additional_context_dim = None
     ):
         super().__init__()
         # Clip, they use
@@ -189,6 +193,8 @@ class LBM(Module):
                 dim = dim,
                 depth = depth,
                 heads = heads,
+                cross_attend = accept_additional_context,
+                cross_attn_dim_context = default(additional_context_dim, dim),
                 attn_dim_head = dim_head,
                 dim_condition = dim_observation,
                 use_adaptive_layernorm = True,
@@ -259,6 +265,7 @@ class LBM(Module):
         images: Tensor,
         pose: Tensor,
         touch: Tensor | None = None,
+        context: Tensor | None = None,    # Float[b n d]
         return_noise = False,
         remove_task_status = True
     ):
@@ -266,7 +273,14 @@ class LBM(Module):
 
         text, images = self.get_clip_text_image_feats(text, images, touch = touch)
 
-        sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = dict(text = text, images = images, pose = pose))
+        model_forward_kwargs = dict(
+            text = text,
+            images = images,
+            pose = pose,
+            context = context
+        )
+
+        sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = model_forward_kwargs)
 
         if self.add_task_status_prediction and remove_task_status:
             # remove task status during inference
@@ -291,6 +305,7 @@ class LBM(Module):
         pose: Tensor,
         touch: Tensor | None = None,
         actions: Tensor | None = None,
+        context: Tensor | None = None,    # Float[b n d]
         task_status: Tensor | None = None # must be Int['b'] of {-1, 0, 1} - `-1` for invalid action / language pair
     ):
         batch, device = images.shape[0], images.device
@@ -321,9 +336,16 @@ class LBM(Module):
 
         # gaussian diffusion 1d loss
 
+        model_forward_kwargs = dict(
+            text = text,
+            images = images,
+            pose = pose,
+            context = context
+        )
+
         loss = self.gaussian_diffusion_1d(
             actions,
-            model_forward_kwargs = dict(text = text, images = images, pose = pose),
+            model_forward_kwargs = model_forward_kwargs,
             return_reduced_loss = False
         )
 
