@@ -31,6 +31,7 @@ def test_lbm(
     pose = torch.randn(1, 4)
 
     context = torch.randn(1, 32, 17) if additional_context else None
+    context_mask = torch.randint(0, 2, (1, 32)).bool() if additional_context else None
 
     touch = torch.randn(1, 2, 37) if tactile else None
 
@@ -43,6 +44,7 @@ def test_lbm(
         pose = pose,
         touch = touch,
         context = context,
+        context_mask = context_mask,
         task_status = task_status
     )
 
@@ -52,6 +54,7 @@ def test_lbm(
         pose = pose,
         touch = touch,
         context = context,
+        context_mask = context_mask,
         return_noise = diffusion_steer
     )
 

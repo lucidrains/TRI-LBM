@@ -96,7 +96,8 @@ class DiffusionTransformerWrapper(Module):
         images,
         pose,
         *,
-        context
+        context = None,
+        context_mask = None
     ):
         batch_size = actions.shape[0]
 
@@ -107,7 +108,12 @@ class DiffusionTransformerWrapper(Module):
         images = rearrange(images, 'b t d -> b (t d)')
         condition = cat((time_cond, text, images, pose), dim = -1)
 
-        attended = self.transformer(tokens, condition = condition, context = context)
+        attended = self.transformer(
+            tokens,
+            condition = condition,
+            context = context,
+            context_mask = context_mask
+        )
 
         pred = self.proj_out(attended)
         return pred
@@ -265,7 +271,8 @@ class LBM(Module):
         images: Tensor,
         pose: Tensor,
         touch: Tensor | None = None,
-        context: Tensor | None = None,    # Float[b n d]
+        context: Tensor | None = None,      # Float[b n d]
+        context_mask: Tensor | None = None, # Bool[b n]
         return_noise = False,
         remove_task_status = True
     ):
@@ -305,8 +312,9 @@ class LBM(Module):
         pose: Tensor,
         touch: Tensor | None = None,
         actions: Tensor | None = None,
-        context: Tensor | None = None,    # Float[b n d]
-        task_status: Tensor | None = None # must be Int['b'] of {-1, 0, 1} - `-1` for invalid action / language pair
+        context: Tensor | None = None,      # Float[b n d]
+        context_mask: Tensor | None = None, # Bool[b n]
+        task_status: Tensor | None = None   # must be Int['b'] of {-1, 0, 1} - `-1` for invalid action / language pair
     ):
         batch, device = images.shape[0], images.device
         assert images.shape[1:] == self.images_shape
@@ -340,7 +348,8 @@ class LBM(Module):
             text = text,
             images = images,
             pose = pose,
-            context = context
+            context = context,
+            context_mask = context_mask
         )
 
         loss = self.gaussian_diffusion_1d(
