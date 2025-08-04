@@ -30,7 +30,7 @@ dependencies = [
     "einx>=0.3.0",
     "einops>=0.8.0",
     "open_clip_torch",
-    "x-transformers>=2.6.0",
+    "x-transformers>=2.6.1",
     "vit-pytorch>=1.11.2"
 ]
 
