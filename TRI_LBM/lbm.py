@@ -41,6 +41,9 @@ from bidirectional_cross_attention import BidirectionalCrossAttentionTransformer
 def exists(v):
     return v is not None
 
+def identity(t):
+    return t
+
 def default(v, d):
     return v if exists(v) else d
 
@@ -171,7 +174,8 @@ class LBM(Module):
         self.language_model = language_model
         self.language_tokenizer = tokenizer
 
-        self.image_preprocess = preprocess
+        self.image_preprocess = preprocess.transforms[-1]
+
         self.image_model = image_model
         self.accept_video_wrapper = AcceptVideoWrapper(image_model, forward_function = 'encode_image')
 
@@ -257,6 +261,8 @@ class LBM(Module):
         with torch.no_grad():
             self.language_model.eval()
             text = self.language_model.encode_text(text)
+
+        images = self.image_preprocess(images)
 
         images = self.accept_video_wrapper(images, eval_with_no_grad = True)
 
