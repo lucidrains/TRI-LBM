@@ -138,6 +138,7 @@ class LBM(Module):
         depth = 8, # Table 2. - not very deep at all
         dim_head = 64,
         heads = 12,
+        max_time_seq_len = 16,
         action_chunk_length = 16,
         action_mean_std_for_norm: Tensor | None = None, # Float['d 2'] - last dimension must be shift and inv scale
         diffusion_timesteps = 1000,
@@ -171,13 +172,28 @@ class LBM(Module):
 
         image_model, _, image_preprocess = open_clip.create_model_and_transforms(clip_image_model, pretrained = image_pretrained_name)
 
+        # cheap way to get feat dimensions
+        # assume one image for starters
+
+        dim_text_feats = language_model.encode_text(tokenizer(['test'])).shape[-1]
+        dim_image_feats = image_model.encode_image(torch.randn(1, 3, 224, 224)).shape[-1]
+
+        # store language and image model as video frame processor
+
         self.language_model = language_model
         self.language_tokenizer = tokenizer
 
         self.image_preprocess = preprocess.transforms[-1]
 
         self.image_model = image_model
-        self.accept_video_wrapper = AcceptVideoWrapper(image_model, forward_function = 'encode_image')
+
+        self.accept_video_wrapper = AcceptVideoWrapper(
+            image_model,
+            forward_function = 'encode_image',
+            add_time_pos_emb = True,
+            time_seq_len = max_time_seq_len,
+            dim_emb = dim_image_feats
+        )
 
         self.norm_clip_embeds = norm_clip_embeds
 
@@ -186,11 +202,6 @@ class LBM(Module):
         self.add_task_status_prediction = add_task_status_prediction
         maybe_task_status_dim = bool(self.add_task_status_prediction)
 
-        # cheap way to get feat dimensions
-        # assume one image for starters
-
-        dim_text_feats = language_model.encode_text(tokenizer(['test'])).shape[-1]
-        dim_image_feats = image_model.encode_image(torch.randn(1, 3, 224, 224)).shape[-1]
         dim_time = dim * 2
 
         dim_observation = (
