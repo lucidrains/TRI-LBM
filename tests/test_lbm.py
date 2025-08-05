@@ -5,11 +5,13 @@ param = pytest.mark.parametrize
 @param('test_task_status', (False, True))
 @param('diffusion_steer', (False, True))
 @param('additional_context', (False, True))
+@param('send_vlm_key_values', (False, True))
 def test_lbm(
     tactile,
     test_task_status,
     diffusion_steer,
-    additional_context
+    additional_context,
+    send_vlm_key_values
 ):
     import torch
     from TRI_LBM.lbm import LBM
@@ -37,6 +39,13 @@ def test_lbm(
 
     task_status = torch.randint(-1, 2, (1,)) if test_task_status else None
 
+    vlm_key_values = None
+    if send_vlm_key_values:
+        vlm_key_values = [
+            (torch.randn(1, 12, 32, 64), torch.randn(1, 12, 32, 64)),
+            (torch.randn(1, 12, 32, 64), torch.randn(1, 12, 32, 64)),
+        ]
+
     loss = lbm(
         text = commands,
         images = images,
@@ -45,7 +54,8 @@ def test_lbm(
         touch = touch,
         context = context,
         context_mask = context_mask,
-        task_status = task_status
+        task_status = task_status,
+        vlm_key_values = vlm_key_values
     )
 
     sampled_out = lbm.sample(
@@ -55,7 +65,8 @@ def test_lbm(
         touch = touch,
         context = context,
         context_mask = context_mask,
-        return_noise = diffusion_steer
+        return_noise = diffusion_steer,
+        vlm_key_values = vlm_key_values
     )
 
     if not diffusion_steer:

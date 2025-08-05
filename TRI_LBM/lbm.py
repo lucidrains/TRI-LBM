@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from torch import nn, Tensor, tensor, is_tensor, cat, stack
+from torch.utils._pytree import tree_map
 from torch.nn import Module, ModuleList
 
 # ein notation
@@ -45,6 +46,9 @@ def default(v, d):
 
 def l2norm(t):
     return F.normalize(t, dim = -1)
+
+def detach_all(obj):
+    return tree_map(lambda t: t.detach() if is_tensor(t) else t, obj)
 
 def divisible_by(num, den):
     return (num % den) == 0
@@ -97,7 +101,8 @@ class DiffusionTransformerWrapper(Module):
         pose,
         *,
         context = None,
-        context_mask = None
+        context_mask = None,
+        vlm_key_values = None
     ):
         batch_size = actions.shape[0]
 
@@ -112,7 +117,8 @@ class DiffusionTransformerWrapper(Module):
             tokens,
             condition = condition,
             context = context,
-            context_mask = context_mask
+            context_mask = context_mask,
+            self_attn_additional_kv = detach_all(vlm_key_values) # knowledge insulation - Physical Intelligence
         )
 
         pred = self.proj_out(attended)
@@ -273,6 +279,7 @@ class LBM(Module):
         touch: Tensor | None = None,
         context: Tensor | None = None,      # Float[b n d]
         context_mask: Tensor | None = None, # Bool[b n]
+        vlm_key_values: list[tuple[Tensor, Tensor]] | None = None,
         return_noise = False,
         remove_task_status = True
     ):
@@ -284,7 +291,8 @@ class LBM(Module):
             text = text,
             images = images,
             pose = pose,
-            context = context
+            context = context,
+            vlm_key_values = vlm_key_values
         )
 
         sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = model_forward_kwargs)
@@ -314,7 +322,8 @@ class LBM(Module):
         actions: Tensor | None = None,
         context: Tensor | None = None,      # Float[b n d]
         context_mask: Tensor | None = None, # Bool[b n]
-        task_status: Tensor | None = None   # must be Int['b'] of {-1, 0, 1} - `-1` for invalid action / language pair
+        task_status: Tensor | None = None,  # must be Int['b'] of {-1, 0, 1} - `-1` for invalid action / language pair
+        vlm_key_values: list[tuple[Tensor, Tensor]] | None = None
     ):
         batch, device = images.shape[0], images.device
         assert images.shape[1:] == self.images_shape
@@ -349,7 +358,8 @@ class LBM(Module):
             images = images,
             pose = pose,
             context = context,
-            context_mask = context_mask
+            context_mask = context_mask,
+            vlm_key_values = vlm_key_values
         )
 
         loss = self.gaussian_diffusion_1d(
