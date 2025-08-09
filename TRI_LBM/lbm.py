@@ -105,7 +105,8 @@ class DiffusionTransformerWrapper(Module):
         *,
         context = None,
         context_mask = None,
-        vlm_key_values = None
+        vlm_key_values = None,
+        vlm_seq_mask = None
     ):
         batch_size = actions.shape[0]
 
@@ -121,7 +122,9 @@ class DiffusionTransformerWrapper(Module):
             condition = condition,
             context = context,
             context_mask = context_mask,
-            self_attn_additional_kv = detach_all(vlm_key_values) # knowledge insulation - Physical Intelligence
+            detach_additional_kv = True,
+            self_attn_additional_kv = vlm_key_values,
+            additional_kv_mask = vlm_seq_mask
         )
 
         pred = self.proj_out(attended)
