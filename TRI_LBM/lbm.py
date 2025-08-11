@@ -14,7 +14,7 @@ from torch.nn import Module, ModuleList
 # w - width
 
 import einx
-from einops import rearrange, repeat, pack
+from einops import rearrange, repeat, pack, unpack
 from einops.layers.torch import Rearrange
 
 # dogfooding
@@ -46,6 +46,9 @@ def identity(t):
 
 def default(v, d):
     return v if exists(v) else d
+
+def xnor(x, y):
+    return not (x ^ y)
 
 def l2norm(t):
     return F.normalize(t, dim = -1)
@@ -103,6 +106,7 @@ class DiffusionTransformerWrapper(Module):
         images,
         pose,
         *,
+        prepend_embeds = None,
         context = None,
         context_mask = None,
         vlm_key_values = None,
@@ -117,6 +121,9 @@ class DiffusionTransformerWrapper(Module):
         images = rearrange(images, 'b t d -> b (t d)')
         condition = cat((time_cond, text, images, pose), dim = -1)
 
+        if exists(prepend_embeds):
+            tokens, prepend_packed_shape = pack((prepend_embeds, tokens), 'b * d')
+
         attended = self.transformer(
             tokens,
             condition = condition,
@@ -126,6 +133,9 @@ class DiffusionTransformerWrapper(Module):
             self_attn_additional_kv = vlm_key_values,
             additional_kv_mask = vlm_seq_mask
         )
+
+        if exists(prepend_embeds):
+            _, attended = unpack(attended, prepend_packed_shape, 'b * d')
 
         pred = self.proj_out(attended)
         return pred
@@ -156,6 +166,7 @@ class LBM(Module):
         num_image_frames = 3,
         dim_tactile_input = None,
         tactile_image_fusion_depth = 2,
+        dim_depth_embed = None,
         add_task_status_prediction = True,  # Bytedance reports doing a crude contrastive learning on action / language pairs during training significantly improves instruction following - https://arxiv.org/abs/2507.15493
         accept_additional_context = False,  # cross attend to additional context, will be used on CLIP text encoding to improve on language following
         additional_context_dim = None
@@ -255,6 +266,15 @@ class LBM(Module):
                 depth = tactile_image_fusion_depth
             )
 
+        # depth embeds (Adapt3R paper)
+
+        self.accept_depth_embed = exists(dim_depth_embed)
+
+        self.to_depth_tokens = None
+
+        if self.accept_depth_embed:
+            self.to_depth_tokens = nn.Linear(dim_depth_embed, dim)
+
         # one contribution of the paper is that Russ claims huge improvements (40x) by simply normalizing actions correctly
 
         self.normalize_actions = exists(action_mean_std_for_norm)
@@ -297,6 +317,7 @@ class LBM(Module):
         images: Tensor,
         pose: Tensor,
         touch: Tensor | None = None,
+        depth_embed: Tensor | None = None,
         context: Tensor | None = None,      # Float[b n d]
         context_mask: Tensor | None = None, # Bool[b n]
         vlm_key_values: list[tuple[Tensor, Tensor]] | None = None,
@@ -314,6 +335,17 @@ class LBM(Module):
             context = context,
             vlm_key_values = vlm_key_values
         )
+
+        # maybe add depth tokens
+
+        assert xnor(exists(depth_embed), self.accept_depth_embed)
+
+        if exists(depth_embed):
+            depth_tokens = self.to_depth_tokens(depth_embed)
+
+            model_forward_kwargs.update(prepend_embeds = depth_tokens)
+
+        # sample actions
 
         sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = model_forward_kwargs)
 
@@ -339,6 +371,7 @@ class LBM(Module):
         images: Tensor,
         pose: Tensor,
         touch: Tensor | None = None,
+        depth_embed: Tensor | None = None,
         actions: Tensor | None = None,
         context: Tensor | None = None,      # Float[b n d]
         context_mask: Tensor | None = None, # Bool[b n]
@@ -381,6 +414,17 @@ class LBM(Module):
             context_mask = context_mask,
             vlm_key_values = vlm_key_values
         )
+
+        # maybe add depth tokens
+
+        assert xnor(exists(depth_embed), self.accept_depth_embed), f'`dim_depth_embed` must be set if `depth_embed` were passed in (batch, seq, <dim_depth_embed>)'
+
+        if exists(depth_embed):
+            depth_tokens = self.to_depth_tokens(depth_embed)
+
+            model_forward_kwargs.update(prepend_embeds = depth_tokens)
+
+        # diffusion loss
 
         loss = self.gaussian_diffusion_1d(
             actions,

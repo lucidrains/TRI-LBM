@@ -6,12 +6,14 @@ param = pytest.mark.parametrize
 @param('diffusion_steer', (False, True))
 @param('additional_context', (False, True))
 @param('send_vlm_key_values', (False, True))
+@param('use_depth_embed', (False, True))
 def test_lbm(
     tactile,
     test_task_status,
     diffusion_steer,
     additional_context,
-    send_vlm_key_values
+    send_vlm_key_values,
+    use_depth_embed
 ):
     import torch
     from TRI_LBM.lbm import LBM
@@ -24,7 +26,8 @@ def test_lbm(
         accept_additional_context = additional_context,
         depth = 1,
         dim = 64,
-        additional_context_dim = 17
+        additional_context_dim = 17,
+        dim_depth_embed = 21 if use_depth_embed else None
     )
 
     commands = ['pick up the apple']
@@ -46,6 +49,10 @@ def test_lbm(
             (torch.randn(1, 12, 32, 64), torch.randn(1, 12, 32, 64)),
         ]
 
+    depth_embed = None
+    if use_depth_embed:
+        depth_embed = torch.randn(1, 21)
+
     loss = lbm(
         text = commands,
         images = images,
@@ -55,7 +62,8 @@ def test_lbm(
         context = context,
         context_mask = context_mask,
         task_status = task_status,
-        vlm_key_values = vlm_key_values
+        vlm_key_values = vlm_key_values,
+        depth_embed = depth_embed
     )
 
     sampled_out = lbm.sample(
@@ -66,7 +74,8 @@ def test_lbm(
         context = context,
         context_mask = context_mask,
         return_noise = diffusion_steer,
-        vlm_key_values = vlm_key_values
+        vlm_key_values = vlm_key_values,
+        depth_embed = depth_embed
     )
 
     if not diffusion_steer:
