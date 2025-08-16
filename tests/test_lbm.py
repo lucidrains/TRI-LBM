@@ -7,13 +7,15 @@ param = pytest.mark.parametrize
 @param('additional_context', (False, True))
 @param('send_vlm_key_values', (False, True))
 @param('use_depth_embed', (False, True))
+@param('cross_attend_text_encodings', (False, True))
 def test_lbm(
     tactile,
     test_task_status,
     diffusion_steer,
     additional_context,
     send_vlm_key_values,
-    use_depth_embed
+    use_depth_embed,
+    cross_attend_text_encodings
 ):
     import torch
     from TRI_LBM.lbm import LBM
@@ -27,7 +29,8 @@ def test_lbm(
         depth = 1,
         dim = 64,
         additional_context_dim = 17,
-        dim_depth_embed = 21 if use_depth_embed else None
+        dim_depth_embed = 21 if use_depth_embed else None,
+        cross_attend_text_encodings = cross_attend_text_encodings
     )
 
     commands = ['pick up the apple']

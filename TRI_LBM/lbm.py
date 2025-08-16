@@ -44,6 +44,15 @@ def exists(v):
 def identity(t):
     return t
 
+def compact(arr):
+    return [*filter(exists, arr)]
+
+def maybe_cat(arr, *, dim):
+    if len(arr) == 0:
+        return None
+
+    return cat(arr, dim = dim)
+
 def default(v, d):
     return v if exists(v) else d
 
@@ -169,7 +178,8 @@ class LBM(Module):
         dim_depth_embed = None,
         add_task_status_prediction = True,  # Bytedance reports doing a crude contrastive learning on action / language pairs during training significantly improves instruction following - https://arxiv.org/abs/2507.15493
         accept_additional_context = False,  # cross attend to additional context, will be used on CLIP text encoding to improve on language following
-        additional_context_dim = None
+        additional_context_dim = None,
+        cross_attend_text_encodings = False
     ):
         super().__init__()
         # Clip, they use
@@ -211,6 +221,12 @@ class LBM(Module):
 
         self.norm_clip_embeds = norm_clip_embeds
 
+        # whether to have the diffusion transformer cross attend to the fine text tokens from clip, for better language following
+
+        self.cross_attend_text_encodings = cross_attend_text_encodings
+
+        self.text_encodings_to_cross_attn_embed = nn.Linear(dim_text_feats, dim) if cross_attend_text_encodings else None
+
         # whether to do task status prediction
 
         self.add_task_status_prediction = add_task_status_prediction
@@ -234,7 +250,7 @@ class LBM(Module):
                 dim = dim,
                 depth = depth,
                 heads = heads,
-                cross_attend = accept_additional_context,
+                cross_attend = accept_additional_context or cross_attend_text_encodings,
                 cross_attn_dim_context = default(additional_context_dim, dim),
                 attn_dim_head = dim_head,
                 dim_condition = dim_observation,
@@ -289,6 +305,20 @@ class LBM(Module):
         images: Tensor,               # (b c t h w)
         touch: Tensor | None = None,  # (b nt, dt)
     ):
+        # whether to extract text encodings from clip to forward to DiT
+
+        text_encodings = None
+
+        if self.cross_attend_text_encodings:
+
+            def hook(_, __, final_outputs):
+                nonlocal text_encodings
+                text_encodings = final_outputs
+
+            text_forward_hook = self.language_model.ln_final.register_forward_hook(hook)
+
+        # process text
+
         if not is_tensor(text):
             text = self.language_tokenizer(text)
 
@@ -309,7 +339,13 @@ class LBM(Module):
         if self.norm_clip_embeds:
             text, images = map(l2norm, (text, images))
 
-        return text, images
+        if self.cross_attend_text_encodings:
+            text_forward_hook.remove()
+            assert exists(text_encodings)
+
+            text_encodings = self.text_encodings_to_cross_attn_embed(text_encodings)
+
+        return text, images, text_encodings
 
     def sample(
         self,
@@ -326,7 +362,9 @@ class LBM(Module):
     ):
         batch_size = images.shape[0]
 
-        text, images = self.get_clip_text_image_feats(text, images, touch = touch)
+        text, images, maybe_text_encodings = self.get_clip_text_image_feats(text, images, touch = touch)
+
+        context = maybe_cat(compact([context, maybe_text_encodings]), dim = 1)
 
         model_forward_kwargs = dict(
             text = text,
@@ -390,7 +428,9 @@ class LBM(Module):
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             actions = (actions - mean) / std
 
-        text, images = self.get_clip_text_image_feats(text, images, touch = touch)
+        text, images, maybe_text_encodings = self.get_clip_text_image_feats(text, images, touch = touch)
+
+        context = maybe_cat(compact([context, maybe_text_encodings]), dim = 1)
 
         # maybe add task status
 
