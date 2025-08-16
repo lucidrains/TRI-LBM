@@ -221,11 +221,15 @@ class LBM(Module):
 
         self.norm_clip_embeds = norm_clip_embeds
 
+        # determine cross attention dim
+
+        additional_context_dim = default(additional_context_dim, dim)
+
         # whether to have the diffusion transformer cross attend to the fine text tokens from clip, for better language following
 
         self.cross_attend_text_encodings = cross_attend_text_encodings
 
-        self.text_encodings_to_cross_attn_embed = nn.Linear(dim_text_feats, dim) if cross_attend_text_encodings else None
+        self.text_encodings_to_cross_attn_embed = nn.Linear(dim_text_feats, additional_context_dim) if cross_attend_text_encodings else None
 
         # whether to do task status prediction
 
@@ -251,7 +255,7 @@ class LBM(Module):
                 depth = depth,
                 heads = heads,
                 cross_attend = accept_additional_context or cross_attend_text_encodings,
-                cross_attn_dim_context = default(additional_context_dim, dim),
+                cross_attn_dim_context = additional_context_dim,
                 attn_dim_head = dim_head,
                 dim_condition = dim_observation,
                 use_adaptive_layernorm = True,
