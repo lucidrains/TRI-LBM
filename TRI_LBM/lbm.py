@@ -370,11 +370,15 @@ class LBM(Module):
 
         context = maybe_cat(compact([context, maybe_text_encodings]), dim = 1)
 
+        if exists(context_mask) and exists(maybe_text_encodings):
+            context_mask = F.pad(context_mask, (0, maybe_text_encodings.shape[1]), value = True)
+
         model_forward_kwargs = dict(
             text = text,
             images = images,
             pose = pose,
             context = context,
+            context_mask = context_mask,
             vlm_key_values = vlm_key_values
         )
 
@@ -435,6 +439,9 @@ class LBM(Module):
         text, images, maybe_text_encodings = self.get_clip_text_image_feats(text, images, touch = touch)
 
         context = maybe_cat(compact([context, maybe_text_encodings]), dim = 1)
+
+        if exists(context_mask) and exists(maybe_text_encodings):
+            context_mask = F.pad(context_mask, (0, maybe_text_encodings.shape[1]), value = True)
 
         # maybe add task status
 
