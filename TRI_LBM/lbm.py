@@ -41,6 +41,9 @@ from bidirectional_cross_attention import BidirectionalCrossAttentionTransformer
 def exists(v):
     return v is not None
 
+def default(v, d):
+    return v if exists(v) else d
+
 def identity(t):
     return t
 
@@ -52,9 +55,6 @@ def maybe_cat(arr, *, dim):
         return None
 
     return cat(arr, dim = dim)
-
-def default(v, d):
-    return v if exists(v) else d
 
 def xnor(x, y):
     return not (x ^ y)
@@ -179,7 +179,8 @@ class LBM(Module):
         add_task_status_prediction = True,  # Bytedance reports doing a crude contrastive learning on action / language pairs during training significantly improves instruction following - https://arxiv.org/abs/2507.15493
         accept_additional_context = False,  # cross attend to additional context, will be used on CLIP text encoding to improve on language following
         additional_context_dim = None,
-        cross_attend_text_encodings = False
+        cross_attend_text_encodings = False,
+        dropout_text_encodings_prob = 0.5
     ):
         super().__init__()
         # Clip, they use
@@ -228,6 +229,8 @@ class LBM(Module):
         # whether to have the diffusion transformer cross attend to the fine text tokens from clip, for better language following
 
         self.cross_attend_text_encodings = cross_attend_text_encodings
+
+        self.dropout_text_encodings_prob = dropout_text_encodings_prob
 
         self.text_encodings_to_cross_attn_embed = nn.Linear(dim_text_feats, additional_context_dim) if cross_attend_text_encodings else None
 
@@ -449,6 +452,13 @@ class LBM(Module):
             actions = (actions - mean) / std
 
         text, images, maybe_text_encodings, maybe_text_mask = self.get_clip_text_image_feats(text, images, touch = touch)
+
+        # take care of dropping out text encoding if enabled
+
+        if self.training and exists(maybe_text_mask):
+            dropout_text_encoding = torch.rand(batch, device = device) < self.dropout_text_encodings_prob
+
+            maybe_text_mask = einx.where('b, , b n', dropout_text_encoding, False, maybe_text_mask)
 
         context = maybe_cat(compact([maybe_text_encodings, context]), dim = 1)
 
