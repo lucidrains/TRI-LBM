@@ -33,28 +33,28 @@ def test_lbm(
         cross_attend_text_encodings = cross_attend_text_encodings
     )
 
-    commands = ['pick up the apple']
-    images = torch.randn(1, 3, 3, 224, 224)
-    actions = torch.randn(1, 16, 20)
-    pose = torch.randn(1, 4)
+    commands = ['pick up the apple', 'put down the book']
+    images = torch.randn(2, 3, 3, 224, 224)
+    actions = torch.randn(2, 16, 20)
+    pose = torch.randn(2, 4)
 
-    context = torch.randn(1, 32, 17) if additional_context else None
-    context_mask = torch.randint(0, 2, (1, 32)).bool() if additional_context else None
+    context = torch.randn(2, 32, 17) if additional_context else None
+    context_mask = torch.randint(0, 2, (2, 32)).bool() if additional_context else None
 
-    touch = torch.randn(1, 2, 37) if tactile else None
+    touch = torch.randn(2, 2, 37) if tactile else None
 
-    task_status = torch.randint(-1, 2, (1,)) if test_task_status else None
+    task_status = torch.randint(-1, 2, (2,)) if test_task_status else None
 
     vlm_key_values = None
     if send_vlm_key_values:
         vlm_key_values = [
-            (torch.randn(1, 12, 32, 64), torch.randn(1, 12, 32, 64)),
-            (torch.randn(1, 12, 32, 64), torch.randn(1, 12, 32, 64)),
+            (torch.randn(2, 12, 32, 64), torch.randn(2, 12, 32, 64)),
+            (torch.randn(2, 12, 32, 64), torch.randn(2, 12, 32, 64)),
         ]
 
     depth_embed = None
     if use_depth_embed:
-        depth_embed = torch.randn(1, 21)
+        depth_embed = torch.randn(2, 21)
 
     loss = lbm(
         text = commands,
@@ -83,7 +83,7 @@ def test_lbm(
 
     if not diffusion_steer:
         sampled_actions = sampled_out
-        assert sampled_actions.shape == (1, 16, 20)
+        assert sampled_actions.shape == (2, 16, 20)
     else:
         sampled_actions, noise = sampled_out
         assert sampled_actions.shape == noise.shape

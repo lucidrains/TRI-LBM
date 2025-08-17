@@ -78,7 +78,7 @@ class RandomSinusoidalPosEmb(Module):
         self.weights = nn.Parameter(torch.randn(half_dim), requires_grad = False)
 
     def forward(self, x):
-        freqs = x * rearrange(self.weights, 'd -> 1 d') * 2 * torch.pi
+        freqs = einx.multiply('b, d -> b d', x, self.weights) * 2 * torch.pi
         fouriered = torch.cat((freqs.sin(), freqs.cos()), dim = -1)
         return fouriered
 
@@ -311,7 +311,7 @@ class LBM(Module):
     ):
         # whether to extract text encodings from clip to forward to DiT
 
-        text_encodings = None
+        text_encodings = text_mask = None
 
         if self.cross_attend_text_encodings:
 
@@ -326,22 +326,26 @@ class LBM(Module):
         if not is_tensor(text):
             text = self.language_tokenizer(text)
 
+        # forward through clip vit for text encoding
+
         with torch.no_grad():
             self.language_model.eval()
-            text = self.language_model.encode_text(text)
+            text_embeds = self.language_model.encode_text(text)
+
+        # image preprocess
 
         images = self.image_preprocess(images)
 
-        images = self.accept_video_wrapper(images, eval_with_no_grad = True)
+        image_embeds = self.accept_video_wrapper(images, eval_with_no_grad = True)
 
         if exists(touch):
             assert exists(self.to_tactile_tokens), f'`dim_tactile_input` must be set if tactile data is passed in'
 
             tactile_tokens = self.to_tactile_tokens(touch)
-            images, tactile_tokens = self.tactile_fusion(images, tactile_tokens)
+            image_embeds, tactile_tokens = self.tactile_fusion(image_embeds, tactile_tokens)
 
         if self.norm_clip_embeds:
-            text, images = map(l2norm, (text, images))
+            text_embeds, image_embeds = map(l2norm, (text_embeds, image_embeds))
 
         if self.cross_attend_text_encodings:
             text_forward_hook.remove()
@@ -349,7 +353,16 @@ class LBM(Module):
 
             text_encodings = self.text_encodings_to_cross_attn_embed(text_encodings)
 
-        return text, images, text_encodings
+            # get text lens, remove padding, and generate text mask for encoding
+
+            text_mask = text != 0
+            text_lens = text_mask.sum(dim = -1)
+            max_text_len = text_lens.amax().item()
+
+            text_encodings = text_encodings[:, :max_text_len]
+            text_mask = text_mask[:, :max_text_len]
+
+        return text_embeds, image_embeds, text_encodings, text_mask
 
     def sample(
         self,
@@ -366,12 +379,11 @@ class LBM(Module):
     ):
         batch_size = images.shape[0]
 
-        text, images, maybe_text_encodings = self.get_clip_text_image_feats(text, images, touch = touch)
+        text, images, maybe_text_encodings, maybe_text_mask = self.get_clip_text_image_feats(text, images, touch = touch)
 
-        context = maybe_cat(compact([context, maybe_text_encodings]), dim = 1)
+        context = maybe_cat(compact([maybe_text_encodings, context]), dim = 1)
 
-        if exists(context_mask) and exists(maybe_text_encodings):
-            context_mask = F.pad(context_mask, (0, maybe_text_encodings.shape[1]), value = True)
+        context_mask = maybe_cat(compact([maybe_text_mask, context_mask]), dim = 1)
 
         model_forward_kwargs = dict(
             text = text,
@@ -436,12 +448,11 @@ class LBM(Module):
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             actions = (actions - mean) / std
 
-        text, images, maybe_text_encodings = self.get_clip_text_image_feats(text, images, touch = touch)
+        text, images, maybe_text_encodings, maybe_text_mask = self.get_clip_text_image_feats(text, images, touch = touch)
 
-        context = maybe_cat(compact([context, maybe_text_encodings]), dim = 1)
+        context = maybe_cat(compact([maybe_text_encodings, context]), dim = 1)
 
-        if exists(context_mask) and exists(maybe_text_encodings):
-            context_mask = F.pad(context_mask, (0, maybe_text_encodings.shape[1]), value = True)
+        context_mask = maybe_cat(compact([maybe_text_mask, context_mask]), dim = 1)
 
         # maybe add task status
 
