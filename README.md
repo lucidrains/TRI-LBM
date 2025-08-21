@@ -2,12 +2,11 @@
 
 ## LBM - TRI (wip)
 
-Implementation of the Large Behavioral Model architecture for [dexterous manipulation](https://arxiv.org/abs/2507.05331) from Toyota Research Institute. 
+Implementation of the [Large Behavioral Model](https://www.youtube.com/watch?v=HYwekersccY) architecture for [dexterous manipulation](https://arxiv.org/abs/2507.05331) from Toyota Research Institute. 
 
 [Project Page](https://toyotaresearchinstitute.github.io/lbm1/)
 
 [Data Normalization Takeaway](https://github.com/tuul-ai/robotbuilder/blob/main/timestep_norm.md)
-
 
 ## Install
 
