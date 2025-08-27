@@ -88,17 +88,35 @@ def test_lbm(
         sampled_actions, noise = sampled_out
         assert sampled_actions.shape == noise.shape
 
+def test_welford():
+    import torch
+    from TRI_LBM.lbm import ActionClassifier
+
+    classifier = ActionClassifier(
+        dim_action = 20,
+        num_action_types = 1
+    )
+
+    actions = torch.randn(128, 20)
+    action_types = torch.randint(0, 1, (128,))
+
+    classifier.update_action_statistics_with_welford_(actions, action_types)
+
+    assert torch.allclose(classifier.action_mean, actions.mean(dim = 0))
+
+    assert torch.allclose(variance, actions.var(dim = 0))
+
 def test_action_norm():
     import torch
     from TRI_LBM.lbm import ActionClassifier
 
     classifier = ActionClassifier(
         dim_action = 20,
-        num_action_types = 20
+        num_action_types = 7
     )
 
     action_chunks = torch.randn(2, 12, 20)
-    action_types = torch.randint(0, 20, (2,))
+    action_types = torch.randint(0, 7, (2,))
 
     loss = classifier(action_chunks, action_types)
     loss.backward()
