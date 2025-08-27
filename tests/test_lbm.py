@@ -88,7 +88,8 @@ def test_lbm(
         sampled_actions, noise = sampled_out
         assert sampled_actions.shape == noise.shape
 
-def test_welford():
+@param('parallel', (False, True))
+def test_welford(parallel):
     import torch
     from TRI_LBM.lbm import ActionClassifier
 
@@ -100,7 +101,12 @@ def test_welford():
     actions = torch.randn(128, 20)
     action_types = torch.randint(0, 1, (128,))
 
-    classifier.update_action_statistics_with_welford_(actions, action_types)
+    if parallel:
+        for actions_chunk, action_types_chunk in zip(actions.chunk(2, dim = 0), action_types.chunk(2, dim = 0)):
+            classifier.update_action_statistics_with_parallel_welford_(actions_chunk, action_types_chunk)
+
+    else:
+        classifier.update_action_statistics_with_welford_(actions, action_types)
 
     assert torch.allclose(classifier.action_mean, actions.mean(dim = 0))
 

@@ -14,7 +14,7 @@ from torch.nn import Module, ModuleList
 # w - width
 
 import einx
-from einops import rearrange, repeat, pack, unpack
+from einops import rearrange, repeat, pack, unpack, reduce
 from einops.layers.torch import Rearrange, Reduce
 
 # dogfooding
@@ -92,6 +92,8 @@ class ActionClassifier(Module):
     ):
         super().__init__()
 
+        self.num_action_types = num_action_types
+
         self.to_tokens = nn.Sequential(
             nn.Linear(dim_action, dim)
         )
@@ -142,6 +144,58 @@ class ActionClassifier(Module):
             self.action_counts[action_type] = count
             self.action_mean[action_type] = new_mean
             self.action_sum_diff_squared[action_type] = sum_diff_squared
+
+    def update_action_statistics_with_parallel_welford_(
+        self,
+        actions,      # (b d)
+        action_types  # (b)
+    ):
+        batch, device = actions.shape[0], actions.device
+
+        num_actions_seq = torch.arange(self.num_action_types, device = device)
+
+        mask = einx.equal('na, b -> na b', num_actions_seq, action_types)
+
+        old_sum_diff_squared, old_mean, old_count = self.action_sum_diff_squared, self.action_mean, self.action_counts
+
+        count = reduce(mask, 'na b -> na', 'sum')
+
+        next_count = old_count + count
+
+        repeated_actions = repeat(actions, '... -> na ...', na = self.num_action_types)
+
+        masked_repeated_actions = einx.where('na b, na b d,', mask, repeated_actions, 0.)
+
+        # calculate new mean
+
+        numerator = reduce(masked_repeated_actions, 'na b d -> na d', 'sum')
+
+        new_mean = einx.divide('na d, na -> na d', numerator, count.clamp(min = 1e-5))
+
+        # delta
+
+        delta = new_mean - old_mean
+
+        # next mean
+
+        next_mean = old_mean + count / next_count.clamp(min = 1e-5) * delta
+
+        # new sum square
+
+        diff_squared = einx.subtract('na b d, na d', masked_repeated_actions,  new_mean).pow(2)
+
+        masked_diff_squared = einx.where('na b, na b d,', mask, diff_squared, 0.)
+
+        new_sum_diff_squared = reduce(masked_diff_squared, 'na b d -> na d', 'sum')
+
+        next_sum_diff_squared = old_sum_diff_squared + new_sum_diff_squared + (count * old_count) / (next_count) * delta.pow(2)
+
+        # update
+
+        update_mask = count > 0
+        self.action_counts.copy_(next_count)
+        self.action_sum_diff_squared[update_mask] = next_sum_diff_squared[update_mask]
+        self.action_mean[update_mask] = next_mean
 
     def normalize(
         self,
