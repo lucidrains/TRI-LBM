@@ -84,8 +84,9 @@ class ActionClassifier(Module):
             attn_dim_head = 64,
             heads = 8
         ),
+        action_counts: Tensor | None = None,
         action_mean: Tensor | None = None,
-        action_variance: Tensor | None = None,
+        action_sum_diff_squared: Tensor | None = None,
         eps = 1e-5
     ):
         super().__init__()
@@ -107,17 +108,43 @@ class ActionClassifier(Module):
 
         # store norm related
 
+        self.register_buffer('action_counts', default(action_counts, torch.zeros(num_action_types)))
         self.register_buffer('action_mean', default(action_mean, torch.zeros(num_action_types, dim_action)))
-        self.register_buffer('action_variance', default(action_variance, torch.ones(num_action_types, dim_action)))
+        self.register_buffer('action_sum_diff_squared', default(action_sum_diff_squared, torch.zeros(num_action_types, dim_action)))
+
+    def welford_update(
+        self,
+        actions,      # (b d)
+        action_types  # (b)
+    ):
+        for one_action, action_type in zip(actions, action_types):
+
+            count = self.action_counts[action_type]
+            mean = self.action_mean[action_type]
+            sum_diff_squared = self.action_sum_diff_squared[action_type]
+
+            count += 1
+            delta = one_action - mean
+            new_mean = mean + delta / count
+            new_sum_diff_squared = delta * (one_action - new_mean)
+
+            self.action_counts[action_type] = count
+            self.action_mean[action_type] = new_mean
+            self.action_variance[action_type] = new_sum_diff_squared
 
     def normalize(
         self,
         actions,
         action_types
     ):
+        counts = self.action_counts[action_types]
         means = self.action_mean[action_types]
-        variances = self.action_variance[action_types]
+        sum_diff_squared = self.action_sum_diff_squared[action_types]
+
+        variances = einx.divide('b d, b', sum_diff_squared, (counts - 1.))
         inv_std = variances.clamp(min = 1e-5).rsqrt()
+
+        inv_std = einx.where('b,, b d', counts == 0, 1., inv_std)
 
         mean_centered = einx.subtract('b t d, b d', actions, means)
         normed = einx.multiply('b t d, b d', actions, inv_std)
@@ -128,9 +155,14 @@ class ActionClassifier(Module):
         normed_actions,
         action_types
     ):
+        counts = self.action_counts[action_types]
         means = self.action_mean[action_types]
-        variances = self.action_variance[action_types]
+        sum_diff_squared = self.action_sum_diff_squared[action_types]
+
+        variances = einx.divide('b d, b', sum_diff_squared, (counts - 1.))
         std = variances.clamp(min = 1e-5).sqrt()
+
+        std = einx.where('b,, b d', counts == 0, 1., std)
 
         normed_actions = einx.multiply('b t d, b d', normed_actions, std)
         actions = einx.add('b t d, b d', normed_actions, means)
