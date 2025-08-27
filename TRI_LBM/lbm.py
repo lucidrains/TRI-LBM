@@ -112,7 +112,11 @@ class ActionClassifier(Module):
         self.register_buffer('action_mean', default(action_mean, torch.zeros(num_action_types, dim_action)))
         self.register_buffer('action_sum_diff_squared', default(action_sum_diff_squared, torch.zeros(num_action_types, dim_action)))
 
-    def welford_update(
+    @property
+    def action_variance(self):
+        return einx.divide('b d, b', self.action_sum_diff_squared, self.action_counts - 1)
+
+    def update_action_statistics_with_welford_(
         self,
         actions,      # (b d)
         action_types  # (b)
@@ -126,11 +130,11 @@ class ActionClassifier(Module):
             count += 1
             delta = one_action - mean
             new_mean = mean + delta / count
-            new_sum_diff_squared = delta * (one_action - new_mean)
+            sum_diff_squared += delta * (one_action - new_mean)
 
             self.action_counts[action_type] = count
             self.action_mean[action_type] = new_mean
-            self.action_variance[action_type] = new_sum_diff_squared
+            self.action_sum_diff_squared[action_type] = sum_diff_squared
 
     def normalize(
         self,
@@ -139,9 +143,8 @@ class ActionClassifier(Module):
     ):
         counts = self.action_counts[action_types]
         means = self.action_mean[action_types]
-        sum_diff_squared = self.action_sum_diff_squared[action_types]
+        variances = self.action_variance[action_types]
 
-        variances = einx.divide('b d, b', sum_diff_squared, (counts - 1.))
         inv_std = variances.clamp(min = 1e-5).rsqrt()
 
         inv_std = einx.where('b,, b d', counts == 0, 1., inv_std)
@@ -157,11 +160,9 @@ class ActionClassifier(Module):
     ):
         counts = self.action_counts[action_types]
         means = self.action_mean[action_types]
-        sum_diff_squared = self.action_sum_diff_squared[action_types]
+        variances = self.action_variance[action_types]
 
-        variances = einx.divide('b d, b', sum_diff_squared, (counts - 1.))
         std = variances.clamp(min = 1e-5).sqrt()
-
         std = einx.where('b,, b d', counts == 0, 1., std)
 
         normed_actions = einx.multiply('b t d, b d', normed_actions, std)
