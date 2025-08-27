@@ -15,13 +15,14 @@ from torch.nn import Module, ModuleList
 
 import einx
 from einops import rearrange, repeat, pack, unpack
-from einops.layers.torch import Rearrange
+from einops.layers.torch import Rearrange, Reduce
 
 # dogfooding
 
 from x_transformers import (
     Encoder,
-    TransformerWrapper
+    TransformerWrapper,
+    ContinuousTransformerWrapper
 )
 
 from denoising_diffusion_pytorch import (
@@ -67,6 +68,112 @@ def detach_all(obj):
 
 def divisible_by(num, den):
     return (num % den) == 0
+
+# dataset normalization related
+# Russ Tedrake's proposal
+
+class ActionClassifier(Module):
+    def __init__(
+        self,
+        *,
+        dim_action,
+        num_action_types,
+        dim = 256,
+        depth = 3,
+        attn_kwargs: dict = dict(
+            attn_dim_head = 64,
+            heads = 8
+        ),
+        action_mean: Tensor | None = None,
+        action_variance: Tensor | None = None,
+        eps = 1e-5
+    ):
+        super().__init__()
+
+        self.to_tokens = nn.Sequential(
+            nn.Linear(dim_action, dim)
+        )
+
+        self.transformer = Encoder(
+            dim = dim,
+            depth = depth,
+            **attn_kwargs
+        )
+
+        self.to_logits = nn.Sequential(
+            Reduce('b n d -> b d', 'mean'),
+            nn.Linear(dim, num_action_types)
+        )
+
+        # store norm related
+
+        self.register_buffer('action_mean', default(action_mean, torch.zeros(num_action_types, dim_action)))
+        self.register_buffer('action_variance', default(action_variance, torch.ones(num_action_types, dim_action)))
+
+    def normalize(
+        self,
+        actions,
+        action_types
+    ):
+        means = self.action_mean[action_types]
+        variances = self.action_variance[action_types]
+        inv_std = variances.clamp(min = 1e-5).rsqrt()
+
+        mean_centered = einx.subtract('b t d, b d', actions, means)
+        normed = einx.multiply('b t d, b d', actions, inv_std)
+        return normed
+
+    def inverse_normalize(
+        self,
+        normed_actions,
+        action_types
+    ):
+        means = self.action_mean[action_types]
+        variances = self.action_variance[action_types]
+        std = variances.clamp(min = 1e-5).sqrt()
+
+        normed_actions = einx.multiply('b t d, b d', normed_actions, std)
+        actions = einx.add('b t d, b d', normed_actions, means)
+        return actions
+
+    def forward(
+        self,
+        actions,                # (b t d)
+        action_types = None,    # (b)
+        actions_are_normalized = False
+    ):
+
+        is_training = exists(action_types)
+        is_inferencing = not is_training
+
+        # when training, normalize the actions
+
+        if is_training and not actions_are_normalized:
+            actions = self.normalize(actions, action_types)
+
+        # to tokens, attention, then to logits
+
+        tokens = self.to_tokens(actions)
+
+        attended = self.transformer(tokens)
+
+        logits = self.to_logits(attended)
+
+        # if not training, return predicted action class
+
+        if is_inferencing:
+            pred_action_types = logits.argmax(dim = -1)
+
+            unnormed_actions = self.inverse_normalize(actions, pred_action_types)
+
+            return pred_action_types, unnormed_actions
+
+        loss = F.cross_entropy(
+            logits,
+            action_types
+        )
+
+        return loss
 
 # random sinusoidal for times - used by deepmind a lot
 

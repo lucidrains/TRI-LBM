@@ -87,3 +87,22 @@ def test_lbm(
     else:
         sampled_actions, noise = sampled_out
         assert sampled_actions.shape == noise.shape
+
+def test_action_norm():
+    import torch
+    from TRI_LBM.lbm import ActionClassifier
+
+    classifier = ActionClassifier(
+        dim_action = 20,
+        num_action_types = 20
+    )
+
+    action_chunks = torch.randn(2, 12, 20)
+    action_types = torch.randint(0, 20, (2,))
+
+    loss = classifier(action_chunks, action_types)
+    loss.backward()
+
+    normed_action_chunks = classifier.normalize(action_chunks, action_types)
+
+    pred_classes, unnormed_actions_to_robot = classifier(normed_action_chunks)
