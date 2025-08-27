@@ -86,6 +86,7 @@ class ActionClassifier(Module):
         ),
         action_counts: Tensor | None = None,
         action_mean: Tensor | None = None,
+        action_variance: Tensor | None = None,
         action_sum_diff_squared: Tensor | None = None,
         eps = 1e-5
     ):
@@ -107,6 +108,12 @@ class ActionClassifier(Module):
         )
 
         # store norm related
+
+        assert not (exists(action_variance) and exists(action_sum_diff_squared))
+
+        if exists(action_variance):
+            assert exists(action_counts) and (action_counts > 1).all()
+            action_sum_diff_squared = einx.multiply('b d, b', action_variance, action_counts - 1.)
 
         self.register_buffer('action_counts', default(action_counts, torch.zeros(num_action_types)))
         self.register_buffer('action_mean', default(action_mean, torch.zeros(num_action_types, dim_action)))
