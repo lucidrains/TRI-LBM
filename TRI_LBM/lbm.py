@@ -130,12 +130,15 @@ class ActionClassifier(Module):
     def update_action_statistics_with_welford_(
         self,
         actions,      # (b d) | (b t d)
-        action_types  # (b)
+        action_types  # (b) | (b t)
     ):
         if actions.ndim == 3:
             times = actions.shape[1]
             actions = rearrange(actions, 'b t d -> (b t) d')
             action_types = repeat(action_types, 'b -> (b t)', t = times)
+
+        if action_types.ndim == 2:
+            action_types = rearrange(action_types, 'b t -> (b t)')
 
         for one_action, action_type in zip(actions, action_types):
 
@@ -155,12 +158,15 @@ class ActionClassifier(Module):
     def update_action_statistics_with_parallel_welford_(
         self,
         actions,      # (b d) | (b t d)
-        action_types  # (b)
+        action_types  # (b) | (b t)
     ):
         if actions.ndim == 3:
             times = actions.shape[1]
             actions = rearrange(actions, 'b t d -> (b t) d')
             action_types = repeat(action_types, 'b -> (b t)', t = times)
+
+        if action_types.ndim == 2:
+            action_types = rearrange(action_types, 'b t -> (b t)')
 
         batch, device = actions.shape[0], actions.device
 
