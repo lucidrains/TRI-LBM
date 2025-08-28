@@ -12,6 +12,8 @@ from torch.nn import Module, ModuleList
 # c - channels
 # h - height
 # w - width
+# d - dimension
+# na - num actions
 
 import einx
 from einops import rearrange, repeat, pack, unpack, reduce
