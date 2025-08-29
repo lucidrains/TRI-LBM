@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
 from torch import nn, Tensor, tensor, is_tensor, cat, stack
 from torch.utils._pytree import tree_map
 from torch.nn import Module, ModuleList
@@ -124,6 +125,10 @@ class ActionClassifier(Module):
         self.register_buffer('action_sum_diff_squared', default(action_sum_diff_squared, torch.zeros(num_action_types, dim_action)))
 
     @property
+    def device(self):
+        return self.action_counts.device
+
+    @property
     def action_variance(self):
         return einx.divide('b d, b', self.action_sum_diff_squared, self.action_counts - 1)
 
@@ -196,7 +201,9 @@ class ActionClassifier(Module):
 
         # next mean
 
-        next_mean = old_mean + count / next_count.clamp(min = 1e-5) * delta
+        ratio = count / next_count.clamp(min = 1e-5)
+
+        next_mean = old_mean + einx.multiply('b ..., b', delta, ratio)
 
         # new sum square
 
@@ -206,14 +213,17 @@ class ActionClassifier(Module):
 
         new_sum_diff_squared = reduce(masked_diff_squared, 'na b d -> na d', 'sum')
 
-        next_sum_diff_squared = old_sum_diff_squared + new_sum_diff_squared + (count * old_count) / (next_count) * delta.pow(2)
+        ratio = (count * old_count) / (next_count)
+
+        next_sum_diff_squared = old_sum_diff_squared + new_sum_diff_squared + einx.multiply('b, b ...', ratio, delta.pow(2))
 
         # update
 
         update_mask = count > 0
+
         self.action_counts.copy_(next_count)
-        self.action_sum_diff_squared[update_mask] = next_sum_diff_squared[update_mask]
-        self.action_mean[update_mask] = next_mean
+        self.action_sum_diff_squared.copy_(einx.where('b, b ...,', update_mask, next_sum_diff_squared, 0.))
+        self.action_mean.copy_(einx.where('b, b ...,', update_mask, next_mean, 0.))
 
     def normalize(
         self,
@@ -248,12 +258,28 @@ class ActionClassifier(Module):
         actions = einx.add('b t d, b d', normed_actions, means)
         return actions
 
+    def get_action_statistic(
+        self,
+        actions_dataset: Dataset,
+        batch_size = 16
+    ):
+        dl = DataLoader(actions_dataset, batch_size = batch_size)
+
+        for actions, action_types in dl:
+
+            actions = actions.to(self.device)
+            action_types = action_types.to(self.device)
+
+            self.update_action_statistics_with_parallel_welford_(actions, action_types)
+
     def forward(
         self,
         actions,                # (b t d)
         action_types = None,    # (b)
         actions_are_normalized = False
     ):
+
+        assert (self.action_counts > 0).any(), 'you need to have run through the entire dataset for the action statistics before being able to train a classifier'
 
         is_training = exists(action_types)
         is_inferencing = not is_training

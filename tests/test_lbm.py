@@ -124,6 +124,8 @@ def test_action_norm():
     action_chunks = torch.randn(2, 12, 20)
     action_types = torch.randint(0, 7, (2,))
 
+    classifier.update_action_statistics_with_parallel_welford_(action_chunks, action_types)
+
     loss = classifier(action_chunks, action_types)
     loss.backward()
 
