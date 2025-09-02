@@ -401,6 +401,7 @@ class LBM(Module):
         self,
         action_dim,
         dim_pose,
+        action_chunk_normalizer: ActionClassifier | None = None,
         dim = 768,
         depth = 8, # Table 2. - not very deep at all
         dim_head = 64,
@@ -520,6 +521,10 @@ class LBM(Module):
             self_condition = False,
             channel_first = False
         )
+
+        # optional action normalizer - needs to be pretrained if passed in
+
+        self.action_chunk_normalizer = action_chunk_normalizer
 
         # tactile
 
