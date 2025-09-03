@@ -1,6 +1,6 @@
 [project]
 name = "TRI-LBM"
-version = "0.0.32"
+version = "0.0.34"
 description = "Large Behavioral Model from Toyota Research"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }

@@ -276,7 +276,8 @@ class ActionClassifier(Module):
         self,
         actions,                # (b t d)
         action_types = None,    # (b)
-        actions_are_normalized = False
+        actions_are_normalized = False,
+        return_denormalized_actions = True
     ):
 
         assert (self.action_counts > 0).any(), 'you need to have run through the entire dataset for the action statistics before being able to train a classifier'
@@ -299,19 +300,17 @@ class ActionClassifier(Module):
 
         # if not training, return predicted action class
 
-        if is_inferencing:
-            pred_action_types = logits.argmax(dim = -1)
+        if not is_inferencing:
+            return F.cross_entropy(logits, action_types)
 
-            unnormed_actions = self.inverse_normalize(actions, pred_action_types)
+        pred_action_types = logits.argmax(dim = -1)
 
-            return pred_action_types, unnormed_actions
+        unnormed_actions = self.inverse_normalize(actions, pred_action_types)
 
-        loss = F.cross_entropy(
-            logits,
-            action_types
-        )
+        if not return_denormalized_actions:
+            return pred_action_types
 
-        return loss
+        return pred_action_types, unnormed_actions
 
 # random sinusoidal for times - used by deepmind a lot
 
@@ -525,6 +524,7 @@ class LBM(Module):
         # optional action normalizer - needs to be pretrained if passed in
 
         self.action_chunk_normalizer = action_chunk_normalizer
+        self.normalize_with_action_classifier = exists(action_chunk_normalizer)
 
         # tactile
 
@@ -671,6 +671,9 @@ class LBM(Module):
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             sampled = sampled * std + mean
 
+        if self.normalize_with_action_classifier:
+            sampled_actions, pred_action_types = self.action_chunk_normalizer(sampled_actions)
+
         if not return_noise:
             return sampled_actions
 
@@ -684,6 +687,7 @@ class LBM(Module):
         touch: Tensor | None = None,
         depth_embed: Tensor | None = None,
         actions: Tensor | None = None,
+        action_types: Tensor | None = None, # Int[b]
         context: Tensor | None = None,      # Float[b n d]
         context_mask: Tensor | None = None, # Bool[b n]
         task_status: Tensor | None = None,  # must be Int['b'] of {-1, 0, 1} - `-1` for invalid action / language pair
@@ -745,6 +749,13 @@ class LBM(Module):
             depth_tokens = self.to_depth_tokens(depth_embed)
 
             model_forward_kwargs.update(prepend_embeds = depth_tokens)
+
+        # normalize action chunks if needed
+
+        assert xnor(self.normalize_with_action_classifier, exists(action_types))
+
+        if self.normalize_with_action_classifier:
+            actions = self.action_chunk_normalizer.normalize(actions, action_types)
 
         # diffusion loss
 
