@@ -524,6 +524,8 @@ class LBM(Module):
 
         # optional action normalizer - needs to be pretrained if passed in
 
+        assert not (exists(action_chunk_normalizer) and exists(action_mean_std_for_norm))
+
         self.action_chunk_normalizer = action_chunk_normalizer
         self.normalize_with_action_classifier = exists(action_chunk_normalizer)
 
@@ -667,6 +669,18 @@ class LBM(Module):
 
             sampled_actions = sampled_actions[..., :-1]
             noise = noise[..., :-1]
+
+        if self.normalize_with_action_classifier:
+            action_len = sampled_actions.shape[1]
+            needs_chunking = exists(self.action_chunk_size) and action_len > self.action_chunk_size
+
+            if needs_chunking:
+                assert divisible_by(action_len, self.action_chunk_size)
+
+                sampled_actions = rearrange(sampled_actions, 'b (c t) ... -> b c t ...')
+                sampled_actions, packed_shape = pack([sampled_actions], '* t d')
+
+                pred_action_types, sampled_actions = self.action_chunk_normalizer(sampled_actions)
 
         if self.normalize_actions:
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
