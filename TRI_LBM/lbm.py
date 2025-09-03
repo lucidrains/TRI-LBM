@@ -400,6 +400,7 @@ class LBM(Module):
         self,
         action_dim,
         dim_pose,
+        action_chunk_size = None,
         action_chunk_normalizer: ActionClassifier | None = None,
         dim = 768,
         depth = 8, # Table 2. - not very deep at all
@@ -755,7 +756,30 @@ class LBM(Module):
         assert xnor(self.normalize_with_action_classifier, exists(action_types))
 
         if self.normalize_with_action_classifier:
+
+            action_len = actions.shape[1]
+            needs_chunking = exists(self.action_chunk_size) and action_len > self.action_chunk_size
+
+            # if action being trained on is multiple chunks
+
+            if needs_chunking:
+                assert divisible_by(action_len, self.action_chunk_size)
+
+                if action_types.ndim == 1:
+                    action_types = rearrange(action_types, 'b -> b 1')
+
+                actions = rearrange(actions, 'b (c t) d -> b c t d', t = self.action_chunk_size)
+                action_types = repeat(action_types, 'b c -> b (c r)', r = action_len // self.action_chunk_size)
+
+                actions, action_types = tuple(rearrange(t, 'b c ... -> (b c) ...') for t in (actions, action_types))
+
+            # normalize actions
+
             actions = self.action_chunk_normalizer.normalize(actions, action_types)
+
+            if needs_chunking:
+                actions, = unpack(actions, '* t d')
+                actions = rearrange(actions, 'b ... d -> b (...) d')
 
         # diffusion loss
 
