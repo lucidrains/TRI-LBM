@@ -168,10 +168,16 @@ class ActionClassifier(Module):
         if actions.ndim == 3:
             times = actions.shape[1]
             actions = rearrange(actions, 'b t d -> (b t) d')
-            action_types = repeat(action_types, 'b -> (b t)', t = times)
+
+            # the entire time chunk is of one action type
+
+            if action_types.ndim == 1:
+                action_types = repeat(action_types, 'b -> (b t)', t = times)
 
         if action_types.ndim == 2:
             action_types = rearrange(action_types, 'b t -> (b t)')
+
+        assert actions.shape[0] == action_types.shape[0]
 
         batch, device = actions.shape[0], actions.device
 
