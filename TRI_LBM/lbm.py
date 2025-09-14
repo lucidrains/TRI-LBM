@@ -1,4 +1,5 @@
 from __future__ import annotations
+from functools import wraps
 
 import torch
 import torch.nn.functional as F
@@ -71,6 +72,18 @@ def detach_all(obj):
 
 def divisible_by(num, den):
     return (num % den) == 0
+
+def inputs_to_module_device(fn):
+    @wraps(fn)
+    def inner(self, *args, **kwargs):
+        assert hasattr(self, 'device')
+        device = self.device
+
+        args, kwargs = tree_map(lambda t: t.to(device) if is_tensor(t) else t, (args, kwargs))
+
+        return fn(self, *args, **kwargs)
+
+    return inner
 
 # dataset normalization related
 # Russ Tedrake's proposal
@@ -582,6 +595,15 @@ class LBM(Module):
             assert action_mean_std_for_norm.shape == (action_dim, 2)
             self.register_buffer('action_mean_std_for_norm', action_mean_std_for_norm)
 
+        # device
+
+        self.register_buffer('dummy', tensor(0), persistent = False)
+
+    @property
+    def device(self):
+        return self.dummy.device
+
+    @inputs_to_module_device
     def get_clip_text_image_feats(
         self,
         text: list[str] | Tensor,
@@ -604,6 +626,7 @@ class LBM(Module):
 
         if not is_tensor(text):
             text = self.language_tokenizer(text)
+            text = text.to(self.device)
 
         # forward through clip vit for text encoding
 
@@ -643,6 +666,7 @@ class LBM(Module):
 
         return text_embeds, image_embeds, text_encodings, text_mask
 
+    @inputs_to_module_device
     def sample(
         self,
         text: list[str] | Tensor,
@@ -718,6 +742,7 @@ class LBM(Module):
 
         return sampled_actions, noise
 
+    @inputs_to_module_device
     def forward(
         self,
         text: list[str] | Tensor,
