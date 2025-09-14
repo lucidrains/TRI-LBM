@@ -132,18 +132,33 @@ class ActionClassifier(Module):
     def action_variance(self):
         return einx.divide('b d, b', self.action_sum_diff_squared, self.action_counts - 1)
 
+    def standardize_shapes(
+        self,
+        actions,
+        action_types
+    ):
+        if actions.ndim == 3:
+            times = actions.shape[1]
+            actions = rearrange(actions, 'b t d -> (b t) d')
+
+            # the entire time chunk is of one action type
+
+            if action_types.ndim == 1:
+                action_types = repeat(action_types, 'b -> (b t)', t = times)
+
+        if action_types.ndim == 2:
+            action_types = rearrange(action_types, 'b t -> (b t)')
+
+        assert actions.shape[0] == action_types.shape[0]
+
+        return actions, action_types
+
     def update_action_statistics_with_welford_(
         self,
         actions,      # (b d) | (b t d)
         action_types  # (b) | (b t)
     ):
-        if actions.ndim == 3:
-            times = actions.shape[1]
-            actions = rearrange(actions, 'b t d -> (b t) d')
-            action_types = repeat(action_types, 'b -> (b t)', t = times)
-
-        if action_types.ndim == 2:
-            action_types = rearrange(action_types, 'b t -> (b t)')
+        actions, action_types = self.standardize_shapes(actions, action_types)
 
         for one_action, action_type in zip(actions, action_types):
 
@@ -165,19 +180,7 @@ class ActionClassifier(Module):
         actions,      # (b d) | (b t d)
         action_types  # (b) | (b t)
     ):
-        if actions.ndim == 3:
-            times = actions.shape[1]
-            actions = rearrange(actions, 'b t d -> (b t) d')
-
-            # the entire time chunk is of one action type
-
-            if action_types.ndim == 1:
-                action_types = repeat(action_types, 'b -> (b t)', t = times)
-
-        if action_types.ndim == 2:
-            action_types = rearrange(action_types, 'b t -> (b t)')
-
-        assert actions.shape[0] == action_types.shape[0]
+        actions, action_types = self.standardize_shapes(actions, action_types)
 
         batch, device = actions.shape[0], actions.device
 
