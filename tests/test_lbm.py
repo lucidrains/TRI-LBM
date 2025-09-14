@@ -112,6 +112,27 @@ def test_welford(parallel):
 
     assert torch.allclose(classifier.action_variance, actions.var(dim = 0))
 
+@param('parallel', (False, True))
+def test_extract_action_stats_from_dataset(parallel):
+    import torch
+    from torch.utils.data import Dataset
+    from TRI_LBM.lbm import ActionClassifier
+
+    classifier = ActionClassifier(
+        dim_action = 20,
+        num_action_types = 2
+    )
+
+    class LabelledActionDataset(Dataset):
+        def __len__(self):
+            return 64
+
+        def __getitem__(self, _):
+            return torch.randn((20,)), torch.randint(0, 2, ())
+
+    dataset = LabelledActionDataset()
+    classifier.get_stats_from_dataset_(dataset, parallel = parallel)
+
 def test_action_norm():
     import torch
     from TRI_LBM.lbm import ActionClassifier

@@ -132,6 +132,19 @@ class ActionClassifier(Module):
     def action_variance(self):
         return einx.divide('b d, b', self.action_sum_diff_squared, self.action_counts - 1)
 
+    def get_stats_from_dataset_(
+        self,
+        dataset,
+        batch_size = 32,
+        parallel = True
+    ):
+        dataloader = DataLoader(dataset, batch_size = batch_size)
+
+        update_stats_fn = self.update_action_statistics_with_parallel_welford_ if parallel else self.update_action_statistics_with_welford_
+
+        for actions, action_types in dataloader:
+            update_stats_fn(actions, action_types)
+
     def standardize_shapes(
         self,
         actions,
