@@ -245,7 +245,7 @@ class ActionClassifier(Module):
         inv_std = einx.where('b,, b d', counts == 0, 1., inv_std)
 
         mean_centered = einx.subtract('b t d, b d', actions, means)
-        normed = einx.multiply('b t d, b d', actions, inv_std)
+        normed = einx.multiply('b t d, b d', mean_centered, inv_std)
         return normed
 
     def inverse_normalize(
@@ -532,6 +532,7 @@ class LBM(Module):
 
         assert not (exists(action_chunk_normalizer) and exists(action_mean_std_for_norm))
 
+        self.action_chunk_size = action_chunk_size
         self.action_chunk_normalizer = action_chunk_normalizer
         self.normalize_with_action_classifier = exists(action_chunk_normalizer)
 
@@ -669,13 +670,6 @@ class LBM(Module):
 
         sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = model_forward_kwargs)
 
-        if self.add_task_status_prediction and remove_task_status:
-            # remove task status during inference
-            # todo - should consider also fixing it at 0 and infill
-
-            sampled_actions = sampled_actions[..., :-1]
-            noise = noise[..., :-1]
-
         if self.normalize_with_action_classifier:
             action_len = sampled_actions.shape[1]
             needs_chunking = exists(self.action_chunk_size) and action_len > self.action_chunk_size
@@ -686,14 +680,22 @@ class LBM(Module):
                 sampled_actions = rearrange(sampled_actions, 'b (c t) ... -> b c t ...')
                 sampled_actions, packed_shape = pack([sampled_actions], '* t d')
 
-                pred_action_types, sampled_actions = self.action_chunk_normalizer(sampled_actions)
+            pred_action_types, sampled_actions = self.action_chunk_normalizer(sampled_actions)
+
+            if needs_chunking:
+                sampled_actions, = unpack([sampled_actions], packed_shape, '* t d')
+                sampled_actions = rearrange(sampled_actions, 'b c t ... -> b (c t) ...')
+
+        if self.add_task_status_prediction and remove_task_status:
+            # remove task status during inference
+            # todo - should consider also fixing it at 0 and infill
+
+            sampled_actions = sampled_actions[..., :-1]
+            noise = noise[..., :-1]
 
         if self.normalize_actions:
             mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
             sampled = sampled * std + mean
-
-        if self.normalize_with_action_classifier:
-            sampled_actions, pred_action_types = self.action_chunk_normalizer(sampled_actions)
 
         if not return_noise:
             return sampled_actions

@@ -132,3 +132,50 @@ def test_action_norm():
     normed_action_chunks = classifier.normalize(action_chunks, action_types)
 
     pred_classes, unnormed_actions_to_robot = classifier(normed_action_chunks)
+
+def test_lbm_with_action_classifier():
+    import torch
+    from TRI_LBM.lbm import LBM, ActionClassifier
+
+    action_classifier = ActionClassifier(
+        dim_action = 21,  # 20 + 1 for task status
+        num_action_types = 3
+    )
+
+    dummy_actions = torch.randn(128, 16, 21)
+    dummy_action_types = torch.randint(0, 3, (128,))
+    action_classifier.update_action_statistics_with_parallel_welford_(dummy_actions, dummy_action_types)
+
+    lbm = LBM(
+        action_dim = 20,
+        dim_pose = 4,
+        action_chunk_normalizer = action_classifier,
+        depth = 1,
+        dim = 64,
+        add_task_status_prediction = True
+    )
+
+    commands = ['pick up the apple', 'put down the book']
+    images = torch.randn(2, 3, 3, 224, 224)
+    actions = torch.randn(2, 16, 20)
+    pose = torch.randn(2, 4)
+
+    action_types = torch.randint(0, 3, (2,))
+    task_status = torch.randint(-1, 2, (2,))
+
+    loss = lbm(
+        text = commands,
+        images = images,
+        actions = actions,
+        pose = pose,
+        action_types = action_types,
+        task_status = task_status
+    )
+
+    sampled_actions = lbm.sample(
+        text = commands,
+        images = images,
+        pose = pose
+    )
+
+    assert sampled_actions.shape == (2, 16, 20)
