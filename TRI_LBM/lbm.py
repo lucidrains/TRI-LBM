@@ -443,7 +443,6 @@ class LBM(Module):
         heads = 12,
         max_time_seq_len = 16,
         action_chunk_length = 16,
-        action_mean_std_for_norm: Tensor | None = None, # Float['d 2'] - last dimension must be shift and inv scale
         diffusion_timesteps = 1000,
         diffusion_sampling_timesteps = 16,
         transformer_kwargs: dict = dict(),
@@ -587,14 +586,6 @@ class LBM(Module):
         if self.accept_depth_embed:
             self.to_depth_tokens = nn.Linear(dim_depth_embed, dim)
 
-        # one contribution of the paper is that Russ claims huge improvements (40x) by simply normalizing actions correctly
-
-        self.normalize_actions = exists(action_mean_std_for_norm)
-
-        if self.normalize_actions:
-            assert action_mean_std_for_norm.shape == (action_dim, 2)
-            self.register_buffer('action_mean_std_for_norm', action_mean_std_for_norm)
-
         # device
 
         self.register_buffer('dummy', tensor(0), persistent = False)
@@ -733,10 +724,6 @@ class LBM(Module):
             sampled_actions = sampled_actions[..., :-1]
             noise = noise[..., :-1]
 
-        if self.normalize_actions:
-            mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
-            sampled = sampled * std + mean
-
         if not return_noise:
             return sampled_actions
 
@@ -762,12 +749,6 @@ class LBM(Module):
 
         if not exists(actions):
             return self.sample(text = text, images = images)
-
-        # take care of normalizing actions, if statistics were set on init
-
-        if self.normalize_actions:
-            mean, std = self.action_mean_std_for_norm.unbind(dim = -1)
-            actions = (actions - mean) / std
 
         text, images, maybe_text_encodings, maybe_text_mask = self.get_clip_text_image_feats(text, images, touch = touch)
 
