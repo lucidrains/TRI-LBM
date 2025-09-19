@@ -260,6 +260,7 @@ class ActionClassifier(Module):
         self.action_sum_diff_squared.copy_(einx.where('b, b ...,', update_mask, next_sum_diff_squared, 0.))
         self.action_mean.copy_(einx.where('b, b ...,', update_mask, next_mean, 0.))
 
+    @torch.no_grad()
     def normalize(
         self,
         actions,
@@ -277,6 +278,7 @@ class ActionClassifier(Module):
         normed = einx.multiply('b t d, b d', mean_centered, inv_std)
         return normed
 
+    @torch.no_grad()
     def inverse_normalize(
         self,
         normed_actions,
@@ -558,8 +560,6 @@ class LBM(Module):
 
         # optional action normalizer - needs to be pretrained if passed in
 
-        assert not (exists(action_chunk_normalizer) and exists(action_mean_std_for_norm))
-
         self.action_chunk_size = action_chunk_size
         self.action_chunk_normalizer = action_chunk_normalizer
         self.normalize_with_action_classifier = exists(action_chunk_normalizer)
@@ -658,6 +658,7 @@ class LBM(Module):
         return text_embeds, image_embeds, text_encodings, text_mask
 
     @inputs_to_module_device
+    @torch.no_grad()
     def sample(
         self,
         text: list[str] | Tensor,
@@ -702,6 +703,8 @@ class LBM(Module):
         sampled_actions, noise =  self.gaussian_diffusion_1d.sample(batch_size = batch_size, return_noise = True, model_forward_kwargs = model_forward_kwargs)
 
         if self.normalize_with_action_classifier:
+            self.action_chunk_normalizer.eval()
+
             action_len = sampled_actions.shape[1]
             needs_chunking = exists(self.action_chunk_size) and action_len > self.action_chunk_size
 
@@ -800,6 +803,7 @@ class LBM(Module):
         assert xnor(self.normalize_with_action_classifier, exists(action_types))
 
         if self.normalize_with_action_classifier:
+            self.action_chunk_normalizer.eval()
 
             action_len = actions.shape[1]
             needs_chunking = exists(self.action_chunk_size) and action_len > self.action_chunk_size
