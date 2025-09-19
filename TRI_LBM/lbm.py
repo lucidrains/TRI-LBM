@@ -590,6 +590,14 @@ class LBM(Module):
 
         self.register_buffer('dummy', tensor(0), persistent = False)
 
+    def parameters(self):
+        all_parameters = super().parameters()
+
+        if not self.normalize_with_action_classifier:
+            return all_parameters
+
+        return set(all_parameters) - set(self.action_chunk_normalizer.parameters())
+
     @property
     def device(self):
         return self.dummy.device
@@ -800,7 +808,7 @@ class LBM(Module):
 
         # normalize action chunks if needed
 
-        assert xnor(self.normalize_with_action_classifier, exists(action_types))
+        assert xnor(self.normalize_with_action_classifier, exists(action_types)), f'`action_types` must be passed in during training if `action_chunk_normalizer` is being used by the LBM, converse must be true as well'
 
         if self.normalize_with_action_classifier:
             self.action_chunk_normalizer.eval()
